@@ -2,8 +2,8 @@ from fastapi import FastAPI  # type: ignore
 from fastapi.responses import PlainTextResponse  # type: ignore
 from openai import OpenAI  # type: ignore
 
+import os
 # from dotenv import load_dotenv
-# import os
 # load_dotenv()
 
 
