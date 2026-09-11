@@ -15,7 +15,7 @@ def idea():
         api_key=os.environ.get("OPENAI_API_KEY"),
         base_url=os.environ.get("OPENAI_BASE_URL")
     )
-    prompt = [{"role": "user", "content": "Come up with a new business idea for AI Agents"}]
+    prompt = [{"role": "user", "content": "Reply with a new business idea for AI Agents, formatted with headings, sub-headings and bullet points"}]
     stream = client.chat.completions.create(model="gemini-3.6-flash", messages=prompt, stream=True)
 
     def event_stream():

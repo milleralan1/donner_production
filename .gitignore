@@ -42,3 +42,5 @@ next-env.d.ts
 
 api/__pycache__/
 .idea
+node_modules/
+package-lock.json
