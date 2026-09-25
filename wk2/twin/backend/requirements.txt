@@ -3,3 +3,5 @@ uvicorn
 openai
 python-dotenv
 python-multipart
+google-cloud-storage
+pypdf

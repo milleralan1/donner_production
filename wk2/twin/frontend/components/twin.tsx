@@ -40,7 +40,8 @@ export default function Twin() {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://localhost:8000/chat', {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://twin-api-168541155743.asia-south1.run.app/chat';
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
