@@ -45,3 +45,5 @@ api/__pycache__/
 node_modules/
 __pycache__
 .firebaserc
+.claude
+.agents
