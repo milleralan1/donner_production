@@ -452,7 +452,7 @@ OPENAI_API_KEY=your_openai_api_key
 PROJECT_NAME=twin
 ```
 
-Replace `your-gcp-project-id` with your actual GCP project ID (not the project *number*).
+Replace `$GCP_PROJECT_ID` with your actual GCP project ID (not the project *number*).
 
 ### Step 2: Install the gcloud CLI and Sign In
 
@@ -461,14 +461,14 @@ Replace `your-gcp-project-id` with your actual GCP project ID (not the project *
 
 ```bash
 gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
+gcloud config set project $GCP_PROJECT_ID
 ```
 
 If you don't have a project yet, create one first:
 
 ```bash
-gcloud projects create YOUR_PROJECT_ID --name="Digital Twin"
-gcloud config set project YOUR_PROJECT_ID
+gcloud projects create $GCP_PROJECT_ID --name="Digital Twin"
+gcloud config set project $GCP_PROJECT_ID
 ```
 
 **Important**: Make sure billing is enabled on the project (Cloud Run, Cloud Storage, and Cloud Build all require a linked billing account, though usage will stay within the free tier for this project).
@@ -488,15 +488,15 @@ gcloud services enable \
 Rather than an IAM *user group* (as you would in AWS), on GCP you create a **service account** that Cloud Run will run as, and grant it just the roles it needs.
 
 ```bash
-gcloud iam service-accounts create twin-runtime \
+gcloud iam service-accounts create ${PROJECT_NAME}-runtime \
   --display-name="Digital Twin Runtime"
 ```
 
 Grant it access to Cloud Storage (for conversation memory):
 
 ```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:twin-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
+  --member="serviceAccount:${PROJECT_NAME}-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/storage.objectAdmin"
 ```
 
@@ -513,11 +513,11 @@ Unlike the AWS version, there's no manual zipping step — Cloud Build builds yo
 ```bash
 cd backend
 
-gcloud artifacts repositories create twin-repo \
+gcloud artifacts repositories create ${PROJECT_NAME}-repo \
   --repository-format=docker \
-  --location=us-central1
+  --location=$GCP_REGION
 
-gcloud builds submit --tag us-central1-docker.pkg.dev/YOUR_PROJECT_ID/twin-repo/twin-api
+gcloud builds submit --tag $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/${PROJECT_NAME}-repo/${PROJECT_NAME}-api
 ```
 
 Either way, no Docker installation is strictly required locally — Cloud Build does the container build in the cloud. (You can still use local Docker to test the image with `docker build` and `docker run` if you'd like, using the same `Dockerfile`.)
@@ -531,14 +531,14 @@ From the `backend` directory:
 ```bash
 cd backend
 
-gcloud run deploy twin-api \
+gcloud run deploy ${PROJECT_NAME}-api \
   --source . \
-  --region us-central1 \
-  --service-account twin-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+  --region $GCP_REGION \
+  --service-account ${PROJECT_NAME}-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --timeout 30 \
   --memory 512Mi \
-  --set-env-vars OPENAI_API_KEY=your_openai_api_key,CORS_ORIGINS=*,USE_GCS=true,GCS_BUCKET=twin-memory-your-suffix
+  --set-env-vars OPENAI_API_KEY=$OPENAI_API_KEY,CORS_ORIGINS=*,USE_GCS=true,GCS_BUCKET=$GCS_BUCKET
 ```
 
 Notes on the flags:
@@ -549,7 +549,7 @@ Notes on the flags:
 This single command replaces **all** of: zipping code, uploading to Lambda, configuring the handler, and creating an API Gateway with routes — Cloud Run gives you a working HTTPS URL as soon as the deploy finishes, e.g.:
 
 ```
-https://twin-api-abc123xyz-uc.a.run.app
+https://${PROJECT_NAME}-api-abc123xyz-uc.a.run.app
 ```
 
 Save that URL — it's your equivalent of the API Gateway "Invoke URL."
@@ -557,22 +557,22 @@ Save that URL — it's your equivalent of the API Gateway "Invoke URL."
 ### Step 2: Test the Deployment
 
 ```bash
-curl https://twin-api-abc123xyz-uc.a.run.app/health
+curl https://${PROJECT_NAME}-api-abc123xyz-uc.a.run.app/health
 ```
 
 You should see: `{"status": "healthy", "use_gcs": true}` (it's fine if `GCS_BUCKET` doesn't exist yet — you'll create it next).
 
 ### Step 3: Redeploying After Changes
 
-Any time you change `server.py`, `context.py`, or the data files, redeploy with the same command (or just `gcloud run deploy twin-api --source .` — Cloud Run remembers most settings from the previous revision, but it's safest to pass `--set-env-vars` again since it's not always preserved across a fresh `--source` deploy in every gcloud version).
+Any time you change `server.py`, `context.py`, or the data files, redeploy with the same command (or just `gcloud run deploy ${PROJECT_NAME}-api --source .` — Cloud Run remembers most settings from the previous revision, but it's safest to pass `--set-env-vars` again since it's not always preserved across a fresh `--source` deploy in every gcloud version).
 
 ## Part 5: Create Cloud Storage Bucket for Memory
 
 ### Step 1: Create the Memory Bucket
 
 ```bash
-gcloud storage buckets create gs://twin-memory-your-suffix \
-  --location=us-central1 \
+gcloud storage buckets create gs://$GCS_BUCKET \
+  --location=$GCP_REGION \
   --uniform-bucket-level-access
 ```
 
@@ -581,12 +581,12 @@ Bucket names must be globally unique, so pick your own suffix.
 ### Step 2: Update the Cloud Run Environment Variable
 
 ```bash
-gcloud run services update twin-api \
-  --region us-central1 \
-  --set-env-vars GCS_BUCKET=twin-memory-your-suffix
+gcloud run services update ${PROJECT_NAME}-api \
+  --region $GCP_REGION \
+  --set-env-vars GCS_BUCKET=$GCS_BUCKET
 ```
 
-(Permissions were already granted in Part 2, Step 4 via the `roles/storage.objectAdmin` binding on the `twin-runtime` service account — there's no separate "attach policy" step needed the way there was for Lambda's execution role.)
+(Permissions were already granted in Part 2, Step 4 via the `roles/storage.objectAdmin` binding on the `${PROJECT_NAME}-runtime` service account — there's no separate "attach policy" step needed the way there was for Lambda's execution role.)
 
 > **Note on the frontend bucket:** In the AWS version you also created a *second* S3 bucket to host the static frontend files, fronted by CloudFront. On GCP, Firebase Hosting (Part 7) manages static hosting and its own global CDN for you, so a separate frontend Cloud Storage bucket isn't needed. If you'd prefer the closer architectural equivalent — a Cloud Storage bucket behind an external HTTPS Load Balancer with Cloud CDN — that's also possible, but it involves considerably more setup (reserving a static IP, provisioning a managed SSL certificate, and configuring a URL map) for the same end result. Firebase Hosting gets you there in a few commands, so we use that below.
 
@@ -607,7 +607,7 @@ Update `frontend/components/twin.tsx` — find the fetch call and update it to y
 const response = await fetch('http://localhost:8000/chat', {
 
 // With your Cloud Run URL:
-const response = await fetch('https://twin-api-abc123xyz-uc.a.run.app/chat', {
+const response = await fetch('https://${PROJECT_NAME}-api-abc123xyz-uc.a.run.app/chat', {
 ```
 
 ### Step 2: Configure for Static Export
@@ -645,6 +645,7 @@ npm install -g firebase-tools
 firebase login
 
 cd frontend
+firebase use $GCP_PROJECT_ID
 firebase init hosting
 ```
 
@@ -655,7 +656,7 @@ During `firebase init hosting`:
 - Set up automatic builds with GitHub: **No** (unless you want that later)
 - If it asks to overwrite `out/index.html`: **No**
 
-This creates `firebase.json` and `.firebaserc` in your `frontend` folder.
+This creates `firebase.json` and `.oldfirebaserc` in your `frontend` folder.
 
 ### Step 5: Deploy to Firebase Hosting
 
@@ -666,7 +667,7 @@ firebase deploy --only hosting
 Firebase will print a **Hosting URL** that looks like:
 
 ```
-https://your-project-id.web.app
+https://$GCP_PROJECT_ID.web.app
 ```
 
 This is your equivalent of the CloudFront distribution URL — it's already served over HTTPS from Google's global CDN, with no separate CDN configuration step required.
@@ -680,9 +681,9 @@ Open the Hosting URL from Step 5 in your browser. Your twin's frontend should lo
 Now that you have your Firebase Hosting URL, lock down the backend's CORS policy to only accept requests from it:
 
 ```bash
-gcloud run services update twin-api \
-  --region us-central1 \
-  --set-env-vars CORS_ORIGINS=https://your-project-id.web.app
+gcloud run services update ${PROJECT_NAME}-api \
+  --region $GCP_REGION \
+  --set-env-vars CORS_ORIGINS=https://$GCP_PROJECT_ID.web.app
 ```
 
 Double check the value: it must start with `https://` and have **no** trailing slash, matching the Hosting URL exactly — an incorrect value here is the most common source of CORS errors.
@@ -707,14 +708,14 @@ Because Firebase Hosting provides static hosting, HTTPS, and CDN distribution as
 
 ### Step 1: Access Your Twin
 
-1. Go to your Firebase Hosting URL: `https://your-project-id.web.app`
+1. Go to your Firebase Hosting URL: `https://$GCP_PROJECT_ID.web.app`
 2. Your Digital Twin should load with HTTPS!
 3. Test the chat functionality
 
 ### Step 2: Verify Memory in Cloud Storage
 
 ```bash
-gcloud storage ls gs://twin-memory-your-suffix/
+gcloud storage ls gs://$GCS_BUCKET/
 ```
 
 You should see a JSON file for each conversation session. These persist even if the Cloud Run instance is scaled down or restarted.
@@ -722,10 +723,10 @@ You should see a JSON file for each conversation session. These persist even if 
 ### Step 3: Monitor Cloud Logging
 
 ```bash
-gcloud run services logs read twin-api --region us-central1 --limit 50
+gcloud run services logs read ${PROJECT_NAME}-api --region $GCP_REGION --limit 50
 ```
 
-Or view logs in the console: **Cloud Run → twin-api → Logs**.
+Or view logs in the console: **Cloud Run → ${PROJECT_NAME}-api → Logs**.
 
 ## Troubleshooting
 
@@ -740,8 +741,8 @@ If you see CORS errors in browser console:
 ### 500 Internal Server Error
 
 1. Check Cloud Logging for the Cloud Run service
-2. Verify all environment variables are set correctly (`gcloud run services describe twin-api --region us-central1`)
-3. Ensure the `twin-runtime` service account has the `roles/storage.objectAdmin` role
+2. Verify all environment variables are set correctly (`gcloud run services describe ${PROJECT_NAME}-api --region $GCP_REGION`)
+3. Ensure the `${PROJECT_NAME}-runtime` service account has the `roles/storage.objectAdmin` role
 4. Check that `data/` was copied into the container image (see the `Dockerfile`)
 
 ### Chat Not Working

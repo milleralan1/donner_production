@@ -20,25 +20,25 @@ Before we embrace automation, let's clean up all the resources we created manual
 ### Step 1: Delete the Cloud Run Service
 
 ```bash
-gcloud run services delete twin-api --region us-central1
+gcloud run services delete ${PROJECT_NAME}-api --region $GCP_REGION
 ```
 
 ### Step 2: Delete the Cloud Storage Memory Bucket
 
 ```bash
-gcloud storage rm -r gs://twin-memory-your-suffix
+gcloud storage rm -r gs://$GCS_BUCKET
 ```
 
 ### Step 3: Remove the Artifact Registry Image (if you built one manually)
 
 ```bash
-gcloud artifacts repositories delete twin-repo --location us-central1
+gcloud artifacts repositories delete ${PROJECT_NAME}-repo --location $GCP_REGION
 ```
 
 ### Step 4: Delete the Service Account
 
 ```bash
-gcloud iam service-accounts delete twin-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com
+gcloud iam service-accounts delete ${PROJECT_NAME}-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com
 ```
 
 ### Step 5: Clear the Firebase Hosting Site (Optional)
@@ -381,7 +381,7 @@ resource "null_resource" "build_and_push" {
   }
 
   provisioner "local-exec" {
-    command = "gcloud builds submit ${path.module}/../backend --project=${var.project_id} --tag=${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/twin-api:latest"
+    command = "gcloud builds submit ${path.module}/../backend --project=${var.project_id} --tag=${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/${PROJECT_NAME}-api:latest"
   }
 
   depends_on = [google_artifact_registry_repository.repo, google_project_service.cloudbuild]
@@ -403,7 +403,7 @@ resource "google_cloud_run_v2_service" "api" {
     }
 
     containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/twin-api:latest"
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/${PROJECT_NAME}-api:latest"
 
       env {
         name  = "USE_GCS"
@@ -526,17 +526,17 @@ In Cursor's file explorer (the left sidebar):
 Since we're managing `dev`, `test`, and `prod` as isolated environments, create a separate Firebase Hosting **site** for each one (a single Firebase project can host multiple independent sites):
 
 ```bash
-firebase hosting:sites:create twin-dev
-firebase hosting:sites:create twin-test
-firebase hosting:sites:create twin-prod
+firebase hosting:sites:create ${PROJECT_NAME}-dev
+firebase hosting:sites:create ${PROJECT_NAME}-test
+firebase hosting:sites:create ${PROJECT_NAME}-prod
 ```
 
-Then, in `frontend/`, create `.firebaserc` mapping friendly target names to each site:
+Then, in `frontend/`, create `.oldfirebaserc` mapping friendly target names to each site:
 
 ```bash
-firebase target:apply hosting dev twin-dev
-firebase target:apply hosting test twin-test
-firebase target:apply hosting prod twin-prod
+firebase target:apply hosting dev ${PROJECT_NAME}-dev
+firebase target:apply hosting test ${PROJECT_NAME}-test
+firebase target:apply hosting prod ${PROJECT_NAME}-prod
 ```
 
 Update `frontend/firebase.json` to reference the target instead of a single default site:
@@ -700,7 +700,7 @@ Terraform has been successfully initialized!
 The script will:
 1. Create a `dev` workspace in Terraform
 2. Deploy all infrastructure (this triggers a Cloud Build of your container image)
-3. Build and deploy the frontend to the `twin-dev` Firebase Hosting site
+3. Build and deploy the frontend to the `${PROJECT_NAME}-dev` Firebase Hosting site
 4. Display the URLs
 
 ### Step 3: Test Your Development Environment
@@ -730,11 +730,11 @@ Now let's deploy a completely separate test environment:
 ### Step 2: Verify Separate Resources
 
 Check the GCP Console - you'll see separate resources for test:
-- `twin-test-api` Cloud Run service
-- `twin-test-memory-*` Cloud Storage bucket
-- `twin-test-repo` Artifact Registry repository
-- `twin-test-runtime` service account
-- Separate `twin-test` Firebase Hosting site
+- `${PROJECT_NAME}-test-api` Cloud Run service
+- `${PROJECT_NAME}-test-memory-*` Cloud Storage bucket
+- `${PROJECT_NAME}-test-repo` Artifact Registry repository
+- `${PROJECT_NAME}-test-runtime` service account
+- Separate `${PROJECT_NAME}-test` Firebase Hosting site
 
 ### Step 3: Test Both Environments
 
@@ -895,12 +895,12 @@ You can register a new domain through any registrar (GCP offers **Cloud Domains*
 
 ```bash
 firebase hosting:sites:list          # confirm your prod site ID
-firebase target:apply hosting prod twin-prod
+firebase target:apply hosting prod ${PROJECT_NAME}-prod
 cd frontend
 firebase hosting:channel:deploy prod --only hosting:prod   # ensure prod has a live deploy first
 ```
 
-Then, in the [Firebase console](https://console.firebase.google.com) → **Hosting** → select the `twin-prod` site → **Add custom domain**:
+Then, in the [Firebase console](https://console.firebase.google.com) → **Hosting** → select the `${PROJECT_NAME}-prod` site → **Add custom domain**:
 
 1. Enter your domain (e.g., `yourdomain.com`)
 2. Firebase will show you one or two DNS records (usually `A` records, or a `TXT` record for verification) to add at your domain registrar or DNS provider
@@ -912,8 +912,8 @@ Then, in the [Firebase console](https://console.firebase.google.com) → **Hosti
 Once the domain is live, update the backend's `CORS_ORIGINS` to include it:
 
 ```bash
-gcloud run services update twin-prod-api \
-  --region us-central1 \
+gcloud run services update ${PROJECT_NAME}-prod-api \
+  --region $GCP_REGION \
   --set-env-vars CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
@@ -989,9 +989,9 @@ terraform workspace show
 ### Resource Naming
 
 Resources are named with an environment prefix:
-- Dev: `twin-dev-api`, `twin-dev-memory-*`
-- Test: `twin-test-api`, `twin-test-memory-*`
-- Prod: `twin-prod-api`, `twin-prod-memory-*`
+- Dev: `${PROJECT_NAME}-dev-api`, `${PROJECT_NAME}-dev-memory-*`
+- Test: `${PROJECT_NAME}-test-api`, `${PROJECT_NAME}-test-memory-*`
+- Prod: `${PROJECT_NAME}-prod-api`, `${PROJECT_NAME}-prod-memory-*`
 
 ## Cost Optimization
 
@@ -1032,7 +1032,7 @@ If Terraform gets confused about resources:
 terraform refresh
 
 # If resource exists in GCP but not state
-terraform import google_cloud_run_v2_service.api projects/YOUR_PROJECT_ID/locations/us-central1/services/twin-dev-api
+terraform import google_cloud_run_v2_service.api projects/$GCP_PROJECT_ID/locations/$GCP_REGION/services/${PROJECT_NAME}-dev-api
 ```
 
 ### Deployment Script Failures
@@ -1053,7 +1053,7 @@ Firebase Hosting invalidates its CDN cache automatically on every `firebase depl
 
 ```bash
 # Force a hard refresh, or verify the deploy actually completed:
-firebase hosting:channel:list --site twin-dev
+firebase hosting:channel:list --site ${PROJECT_NAME}-dev
 ```
 
 ## Best Practices
@@ -1086,7 +1086,7 @@ Don't hardcode values - use variables:
 name = "${local.name_prefix}-memory"
 
 # Bad
-name = "twin-dev-memory"
+name = "${PROJECT_NAME}-dev-memory"
 ```
 
 ### 4. Label Everything
@@ -1122,9 +1122,9 @@ Terraform Configuration
     └── Public IAM invoker binding
 
 Managed separately via Firebase CLI:
-    ├── twin-dev    (Development frontend)
-    ├── twin-test   (Testing frontend)
-    └── twin-prod   (Production frontend, optional custom domain)
+    ├── ${PROJECT_NAME}-dev    (Development frontend)
+    ├── ${PROJECT_NAME}-test   (Testing frontend)
+    └── ${PROJECT_NAME}-prod   (Production frontend, optional custom domain)
 
 Managed via Terraform Workspaces:
     ├── dev/   (Development environment)

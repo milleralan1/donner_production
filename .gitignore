@@ -44,3 +44,4 @@ api/__pycache__/
 .idea
 node_modules/
 __pycache__
+.firebaserc

@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from openai import OpenAI
 import os
 from dotenv import load_dotenv
 from typing import Optional, List, Dict
@@ -10,6 +9,9 @@ import uuid
 from datetime import datetime
 from google.cloud import storage
 from google.api_core.exceptions import NotFound
+from google import genai
+from google.genai import types
+from google.genai.errors import ClientError
 from context import prompt
 
 # Load environment variables
@@ -27,11 +29,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize OpenAI client
-openai_kwargs = {"api_key": os.getenv("OPENAI_API_KEY")}
-if os.getenv("OPENAI_BASE_URL"):
-    openai_kwargs["base_url"] = os.getenv("OPENAI_BASE_URL")
-client = OpenAI(**openai_kwargs)
+# Initialize the Vertex AI client
+# On Cloud Run, credentials are picked up automatically from the attached
+# service account - no key file or explicit auth needed.
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+GCP_REGION = os.getenv("GCP_REGION", "us-central1")
+
+genai_client = genai.Client(
+    vertexai=True,
+    project=GCP_PROJECT_ID,
+    location=GCP_REGION,
+)
+
+# Gemini model selection
+GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
 
 # Memory storage configuration
 USE_GCS = os.getenv("USE_GCS", "false").lower() == "true"
@@ -39,8 +50,6 @@ GCS_BUCKET = os.getenv("GCS_BUCKET", "")
 MEMORY_DIR = os.getenv("MEMORY_DIR", "../memory")
 
 # Initialize Cloud Storage client if needed
-# On Cloud Run, credentials are picked up automatically from the
-# attached service account — no key file or explicit auth needed.
 if USE_GCS:
     storage_client = storage.Client()
     bucket = storage_client.bucket(GCS_BUCKET)
@@ -101,18 +110,67 @@ def save_conversation(session_id: str, messages: List[Dict]):
             json.dump(messages, f, indent=2)
 
 
+def call_vertex_ai(conversation: List[Dict], user_message: str) -> str:
+    """Call Vertex AI (Gemini) with conversation history"""
+
+    # Gemini uses "model" instead of "assistant" for the AI's turns,
+    # and takes the system prompt separately rather than as a message.
+    contents = []
+    for msg in conversation[-50:]:
+        role = "model" if msg["role"] == "assistant" else "user"
+        contents.append(
+            types.Content(role=role, parts=[types.Part(text=msg["content"])])
+        )
+
+    # Add the current user message
+    contents.append(
+        types.Content(role="user", parts=[types.Part(text=user_message)])
+    )
+
+    try:
+        response = genai_client.models.generate_content(
+            model=GEMINI_MODEL_ID,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=prompt(),
+                max_output_tokens=2000,
+                temperature=0.7,
+                top_p=0.9,
+            ),
+        )
+
+        return response.text
+
+    except ClientError as e:
+        message = str(e)
+        if "PERMISSION_DENIED" in message:
+            print(f"Vertex AI access denied: {e}")
+            raise HTTPException(status_code=403, detail="Access denied to Vertex AI model")
+        elif "NOT_FOUND" in message:
+            print(f"Vertex AI model not found: {e}")
+            raise HTTPException(status_code=400, detail=f"Model not found: {GEMINI_MODEL_ID}")
+        else:
+            print(f"Vertex AI error: {e}")
+            raise HTTPException(status_code=500, detail=f"Vertex AI error: {message}")
+
+
 @app.get("/")
 async def root():
     return {
-        "message": "AI Digital Twin API",
+        "message": "AI Digital Twin API (Powered by Vertex AI)",
         "memory_enabled": True,
         "storage": "GCS" if USE_GCS else "local",
+        "ai_model": GEMINI_MODEL_ID
     }
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "use_gcs": USE_GCS}
+    return {
+        "status": "healthy",
+        "use_gcs": USE_GCS,
+        "gemini_model": GEMINI_MODEL_ID
+    }
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -124,24 +182,8 @@ async def chat(request: ChatRequest):
         # Load conversation history
         conversation = load_conversation(session_id)
 
-        # Build messages for OpenAI
-        messages = [{"role": "system", "content": prompt()}]
-
-        # Add conversation history (keep last 10 messages for context window)
-        for msg in conversation[-10:]:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-
-        # Add current user message
-        messages.append({"role": "user", "content": request.message})
-
-        # Call OpenAI API
-        model_name = os.getenv("OPENAI_MODEL", "gemini-3.6-flash")
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=messages
-        )
-
-        assistant_response = response.choices[0].message.content
+        # Call Vertex AI for response
+        assistant_response = call_vertex_ai(conversation, request.message)
 
         # Update conversation history
         conversation.append(
@@ -160,6 +202,8 @@ async def chat(request: ChatRequest):
 
         return ChatResponse(response=assistant_response, session_id=session_id)
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in chat endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

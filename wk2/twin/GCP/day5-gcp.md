@@ -54,7 +54,7 @@ cd ..
 ```bash
 gcloud run services list
 gcloud storage buckets list
-gcloud artifacts repositories list --location us-central1
+gcloud artifacts repositories list --location $GCP_REGION
 ```
 
 None of these should show any `twin-` prefixed resources.
@@ -202,7 +202,7 @@ Create `terraform/backend-setup.tf`:
 # Run this once per GCP project, then remove the file
 
 resource "google_storage_bucket" "terraform_state" {
-  name                        = "twin-terraform-state-${data.google_project.current.number}"
+  name                        = "${PROJECT_NAME}-terraform-state-${data.google_project.current.number}"
   location                    = var.region
   uniform_bucket_level_access = true
 
@@ -275,7 +275,7 @@ terraform init -input=false
 # New lines:
 PROJECT_NUMBER=$(gcloud projects describe "$(gcloud config get-value project)" --format="value(projectNumber)")
 terraform init -input=false \
-  -backend-config="bucket=twin-terraform-state-${PROJECT_NUMBER}" \
+  -backend-config="bucket=${PROJECT_NAME}-terraform-state-${PROJECT_NUMBER}" \
   -backend-config="prefix=terraform/state/${ENVIRONMENT}"
 ```
 
@@ -288,7 +288,7 @@ terraform init -input=false
 # New lines:
 $projectNumber = gcloud projects describe (gcloud config get-value project) --format="value(projectNumber)"
 terraform init -input=false `
-  -backend-config="bucket=twin-terraform-state-$projectNumber" `
+  -backend-config="bucket=${PROJECT_NAME}-terraform-state-$projectNumber" `
   -backend-config="prefix=terraform/state/$Environment"
 ```
 
@@ -341,7 +341,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 
 # Service account that GitHub Actions will impersonate
 resource "google_service_account" "github_actions" {
-  account_id   = "github-actions-twin-deploy"
+  account_id   = "github-actions-${PROJECT_NAME}-deploy"
   display_name = "GitHub Actions Deploy"
 }
 
@@ -456,11 +456,11 @@ Save both output values — you'll need them for GitHub secrets next.
 
 **Secret 3: GCP_SERVICE_ACCOUNT**
 - Name: `GCP_SERVICE_ACCOUNT`
-- Value: The `github_actions_service_account` output from Step 3 (looks like `github-actions-twin-deploy@your-project.iam.gserviceaccount.com`)
+- Value: The `github_actions_service_account` output from Step 3 (looks like `github-actions-${PROJECT_NAME}-deploy@your-project.iam.gserviceaccount.com`)
 
 **Secret 4: GCP_REGION**
 - Name: `GCP_REGION`
-- Value: `us-central1` (or your preferred region)
+- Value: `$GCP_REGION` (or your preferred region)
 
 **Secret 5: FIREBASE_TOKEN** (for deploying the frontend from CI)
 - Generate this locally first: `firebase login:ci`
@@ -706,10 +706,10 @@ Now let's explore what's happening behind the scenes in GCP.
 
 1. Navigate to **Cloud Run** in the console
 2. You should see three services:
-   - `twin-dev-api`
-   - `twin-test-api`
-   - `twin-prod-api` (if deployed)
-3. Click on `twin-dev-api` → **Metrics** tab to view:
+   - `${PROJECT_NAME}-dev-api`
+   - `${PROJECT_NAME}-test-api`
+   - `${PROJECT_NAME}-prod-api` (if deployed)
+3. Click on `${PROJECT_NAME}-dev-api` → **Metrics** tab to view:
    - Request count
    - Request latency
    - Container instance count
@@ -733,7 +733,7 @@ Now let's explore what's happening behind the scenes in GCP.
 ### Step 4: View Cloud Storage Memory Bucket
 
 1. Navigate to **Cloud Storage → Buckets**
-2. Click on `twin-dev-memory-*`
+2. Click on `${PROJECT_NAME}-dev-memory-*`
 3. You'll see a JSON object for each conversation session
 4. Click on an object to view the conversation history
 
@@ -758,8 +758,8 @@ Now let's explore what's happening behind the scenes in GCP.
 ### Step 2: Verify Destruction
 
 ```bash
-gcloud run services list --filter="metadata.name:twin-test"
-gcloud storage buckets list --filter="name:twin-test"
+gcloud run services list --filter="metadata.name:${PROJECT_NAME}-test"
+gcloud storage buckets list --filter="name:${PROJECT_NAME}-test"
 ```
 
 Both should return nothing.
@@ -780,23 +780,23 @@ Use GitHub Actions to destroy `dev`, `test`, and `prod` (if created) the same wa
 ```bash
 gcloud run services list
 gcloud storage buckets list
-gcloud artifacts repositories list --location us-central1
+gcloud artifacts repositories list --location $GCP_REGION
 ```
 
-Only the `twin-terraform-state-*` bucket should remain — everything else Terraform created for `dev`/`test`/`prod` should be gone. The `github-actions-twin-deploy` service account and Workload Identity Pool should still exist (they're not tied to any one environment).
+Only the `${PROJECT_NAME}-terraform-state-*` bucket should remain — everything else Terraform created for `dev`/`test`/`prod` should be gone. The `github-actions-${PROJECT_NAME}-deploy` service account and Workload Identity Pool should still exist (they're not tied to any one environment).
 
 You can also get a full inventory of tagged resources with **Cloud Asset Inventory**:
 
 ```bash
 gcloud asset search-all-resources \
-  --scope="projects/YOUR_PROJECT_ID" \
+  --scope="projects/$GCP_PROJECT_ID" \
   --query="labels.project=twin"
 ```
 
 Or, to see literally everything in the project regardless of labels:
 
 ```bash
-gcloud asset search-all-resources --scope="projects/YOUR_PROJECT_ID"
+gcloud asset search-all-resources --scope="projects/$GCP_PROJECT_ID"
 ```
 
 ### Step 3: Review Costs
@@ -813,8 +813,8 @@ gcloud asset search-all-resources --scope="projects/YOUR_PROJECT_ID"
 ### Step 4: Optional - Clean Up CI/CD Resources
 
 The remaining resources have minimal-to-zero ongoing cost:
-- **Workload Identity Pool & `github-actions-twin-deploy` service account**: FREE — no cost for IAM
-- **Terraform state bucket** (`twin-terraform-state-*`): a few cents/month for storing state files
+- **Workload Identity Pool & `github-actions-${PROJECT_NAME}-deploy` service account**: FREE — no cost for IAM
+- **Terraform state bucket** (`${PROJECT_NAME}-terraform-state-*`): a few cents/month for storing state files
 
 **Total monthly cost if left running: well under $0.10**
 
@@ -824,14 +824,14 @@ If you want to completely remove everything (only do this if you're completely d
 cd twin/terraform
 
 # 1. Remove the IAM bindings and service account for GitHub Actions
-gcloud iam service-accounts delete github-actions-twin-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com
+gcloud iam service-accounts delete github-actions-${PROJECT_NAME}-deploy@$GCP_PROJECT_ID.iam.gserviceaccount.com
 
 # 2. Delete the Workload Identity Pool (this also removes its provider)
 gcloud iam workload-identity-pools delete github-actions-pool --location=global
 
 # 3. Empty and delete the state bucket
-PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format="value(projectNumber)")
-gcloud storage rm -r "gs://twin-terraform-state-${PROJECT_NUMBER}"
+PROJECT_NUMBER=$(gcloud projects describe $GCP_PROJECT_ID --format="value(projectNumber)")
+gcloud storage rm -r "gs://${PROJECT_NAME}-terraform-state-${PROJECT_NUMBER}"
 ```
 
 **Recommendation**: leave these resources in place. They cost almost nothing and let you redeploy the project later if needed.

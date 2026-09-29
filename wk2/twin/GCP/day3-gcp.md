@@ -37,7 +37,7 @@ Today, we'll implement all three so you can choose based on your needs. (Check t
 
 ## Part 1: Configure IAM Permissions
 
-Unlike the AWS version, there's no root-vs-IAM-user dance here — you simply grant the `twin-runtime` service account (created on Day 2) an additional role, and enable the Vertex AI API.
+Unlike the AWS version, there's no root-vs-IAM-user dance here — you simply grant the `${PROJECT_NAME}-runtime` service account (created on Day 2) an additional role, and enable the Vertex AI API.
 
 ### Step 1: Enable the Vertex AI API
 
@@ -48,12 +48,12 @@ gcloud services enable aiplatform.googleapis.com
 ### Step 2: Grant the Service Account Access to Vertex AI
 
 ```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:twin-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
+  --member="serviceAccount:${PROJECT_NAME}-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/aiplatform.user"
 ```
 
-Your `twin-runtime` service account now has:
+Your `${PROJECT_NAME}-runtime` service account now has:
 - `roles/storage.objectAdmin` (from Day 2 — for conversation memory)
 - `roles/aiplatform.user` (new! — for calling Gemini via Vertex AI)
 
@@ -65,7 +65,7 @@ That's the entire IAM setup — no separate group, no policy-attachment dance, a
 
 A few things worth knowing:
 
-1. **Regional availability**: most Gemini models are available in multiple regions (e.g., `us-central1`, `europe-west4`) and also via a `global` endpoint that lets Vertex AI route your request to whichever region has capacity — similar in spirit to Bedrock's "cross-region inference profile." If you hit a quota or capacity error in one region, trying `global` or a different region is a reasonable first step.
+1. **Regional availability**: most Gemini models are available in multiple regions (e.g., `$GCP_REGION`, `europe-west4`) and also via a `global` endpoint that lets Vertex AI route your request to whichever region has capacity — similar in spirit to Bedrock's "cross-region inference profile." If you hit a quota or capacity error in one region, trying `global` or a different region is a reasonable first step.
 2. **Quotas**: new projects get a default requests-per-minute quota per model, which is generally plenty for this course. If you do hit a quota error, go to **IAM & Admin → Quotas** in the console, filter for `aiplatform.googleapis.com`, and request an increase.
 3. **Model IDs change over time.** We'll use `gemini-2.5-flash` as our default in the code below — check the [Vertex AI model list](https://cloud.google.com/vertex-ai/generative-ai/docs/models) for the current recommended ID if you hit a "model not found" error.
 
@@ -359,17 +359,16 @@ Since `requirements.txt` changed, rebuild and redeploy. From the `backend` direc
 ```bash
 cd backend
 
-gcloud run deploy twin-api \
+gcloud run deploy ${PROJECT_NAME}-api \                      
   --source . \
-  --region us-central1 \
-  --service-account twin-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+  --region $GCP_REGION \
+  --service-account ${PROJECT_NAME}-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com \
   --timeout 60 \
   --memory 512Mi \
-  --set-env-vars CORS_ORIGINS=https://your-project-id.web.app,USE_GCS=true,GCS_BUCKET=twin-memory-your-suffix,GEMINI_MODEL_ID=gemini-2.5-flash,GCP_PROJECT_ID=YOUR_PROJECT_ID,GCP_REGION=us-central1
+  --set-env-vars CORS_ORIGINS=https://$GCP_PROJECT_ID.web.app,USE_GCS=true,GCS_BUCKET=${GCS_BUCKET},GEMINI_MODEL_ID=gemini-2.5-flash,GCP_PROJECT_ID=$GCP_PROJECT_ID,GCP_REGION=$GCP_REGION```
 ```
 
 You can now drop `OPENAI_API_KEY` from your env vars entirely since we're not using it. Note the timeout is bumped to 60 seconds here, matching the more generous Lambda timeout used in the AWS version's Bedrock step — Gemini Pro can take a few seconds longer than Flash-Lite.
-
 ### Model ID Options
 
 You can change `GEMINI_MODEL_ID` to any of these (check the [model list](https://cloud.google.com/vertex-ai/generative-ai/docs/models) for the exact current IDs):
@@ -380,7 +379,7 @@ You can change `GEMINI_MODEL_ID` to any of these (check the [model list](https:/
 ### Step 2: Test the Deployment
 
 ```bash
-curl https://twin-api-abc123xyz-uc.a.run.app/health
+curl https://${PROJECT_NAME}-api-abc123xyz-uc.a.run.app/health
 ```
 
 You should see something like:
@@ -393,11 +392,11 @@ You should see something like:
 
 ### Step 1: Test the Cloud Run URL Directly
 
-Visit `https://twin-api-abc123xyz-uc.a.run.app/health` in your browser. You should see the Gemini model in the response.
+Visit `https://${PROJECT_NAME}-api-abc123xyz-uc.a.run.app/health` in your browser. You should see the Gemini model in the response.
 
 ### Step 2: Test via Firebase Hosting
 
-1. Visit your Firebase Hosting URL: `https://your-project-id.web.app`
+1. Visit your Firebase Hosting URL: `https://$GCP_PROJECT_ID.web.app`
 2. Start a conversation with your twin
 3. Test that the chat is working properly - if you get a reply "Sorry, I encountered an error. Please try again" then see below
 4. Verify that responses are coming through successfully
@@ -411,7 +410,7 @@ Now let's set up monitoring to track your Vertex AI usage and Cloud Run performa
 ### Step 1: View Cloud Run Metrics
 
 1. In the GCP Console, go to **Cloud Run**
-2. Click on `twin-api`
+2. Click on `${PROJECT_NAME}-api`
 3. Go to the **Metrics** tab
 4. Check these key metrics:
    - ✅ Request count
@@ -431,10 +430,10 @@ Now let's set up monitoring to track your Vertex AI usage and Cloud Run performa
 ### Step 3: View Cloud Run Logs
 
 ```bash
-gcloud run services logs read twin-api --region us-central1 --limit 100
+gcloud run services logs read ${PROJECT_NAME}-api --region $GCP_REGION --limit 100
 ```
 
-Or in the console: **Cloud Run → twin-api → Logs**. You can see:
+Or in the console: **Cloud Run → ${PROJECT_NAME}-api → Logs**. You can see:
 - Each request
 - Vertex AI calls
 - Any errors or warnings
@@ -443,7 +442,7 @@ Or in the console: **Cloud Run → twin-api → Logs**. You can see:
 ### Step 4: Create a Monitoring Dashboard (Optional)
 
 1. In the console, go to **Monitoring → Dashboards → Create Dashboard**
-2. Name it `twin-monitoring`
+2. Name it `${PROJECT_NAME}-monitoring`
 3. Add charts for:
    - Cloud Run request count (Line, sum, 5 min)
    - Cloud Run request latency (Line, average, 5 min)
@@ -462,7 +461,7 @@ Or in the console: **Cloud Run → twin-api → Logs**. You can see:
 
 1. Go to **Billing → Budgets & alerts → Create budget**
 2. Set:
-   - Budget name: `twin-budget`
+   - Budget name: `${PROJECT_NAME}-budget`
    - Monthly budget amount: $10 (or your preference)
    - Alert threshold: 80% and 100%
 3. Enter your email for notifications (or connect a Pub/Sub topic for programmatic alerts)
@@ -475,8 +474,8 @@ Or in the console: **Cloud Run → twin-api → Logs**. You can see:
 Let's compare the Gemini tiers. Update your Cloud Run environment variable `GEMINI_MODEL_ID` to test each:
 
 ```bash
-gcloud run services update twin-api \
-  --region us-central1 \
+gcloud run services update ${PROJECT_NAME}-api \
+  --region $GCP_REGION \
   --set-env-vars GEMINI_MODEL_ID=gemini-2.5-flash-lite
 ```
 
@@ -501,7 +500,7 @@ After testing each model, check Cloud Logging:
 
 ```bash
 gcloud logging read \
-  'resource.type="cloud_run_revision" AND resource.labels.service_name="twin-api"' \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="${PROJECT_NAME}-api"' \
   --limit 50 --format json
 ```
 
@@ -514,7 +513,7 @@ Or use **Logs Explorer** in the console with a query filtering on `resource.type
 If you see permission denied errors:
 
 1. Verify IAM permissions:
-   - `twin-runtime` service account has `roles/aiplatform.user`
+   - `${PROJECT_NAME}-runtime` service account has `roles/aiplatform.user`
    - The Vertex AI API is enabled (`gcloud services list --enabled | grep aiplatform`)
 2. Verify region:
    - Make sure `GCP_REGION` is a region where your chosen model is available
@@ -522,7 +521,7 @@ If you see permission denied errors:
 ### "Model Not Found" Errors
 
 1. Check the model ID is correct and current — check the [model list](https://cloud.google.com/vertex-ai/generative-ai/docs/models)
-2. Verify the model is available in your configured region (try `global` or `us-central1` if unsure)
+2. Verify the model is available in your configured region (try `global` or `$GCP_REGION` if unsure)
 
 ### High Latency Issues
 
@@ -537,7 +536,7 @@ If responses are slow:
 
 1. Check Cloud Logging for specific errors
 2. Test the Cloud Run service directly with `curl`
-3. Verify all environment variables are set (`gcloud run services describe twin-api --region us-central1`)
+3. Verify all environment variables are set (`gcloud run services describe ${PROJECT_NAME}-api --region $GCP_REGION`)
 4. Check CORS configuration
 
 ## Cost Optimization Tips
