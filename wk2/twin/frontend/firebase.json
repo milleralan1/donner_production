@@ -1,10 +1,25 @@
 {
-  "hosting": {
-    "public": "out",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ]
-  }
+  "hosting": [
+    {
+      "target": "dev",
+      "public": "out",
+      "ignoreIndex": false,
+      "cleanUrls": true,
+      "trailingSlash": false
+    },
+    {
+      "target": "test",
+      "public": "out",
+      "ignoreIndex": false,
+      "cleanUrls": true,
+      "trailingSlash": false
+    },
+    {
+      "target": "prod",
+      "public": "out",
+      "ignoreIndex": false,
+      "cleanUrls": true,
+      "trailingSlash": false
+    }
+  ]
 }

@@ -45,6 +45,17 @@ api/__pycache__/
 node_modules/
 __pycache__
 .firebaserc
+.firebase
 .claude
 .agents
 .firebase
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate.d/
+*.tfvars
+!terraform.tfvars
+!prod.tfvars
