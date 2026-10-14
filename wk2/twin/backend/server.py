@@ -42,7 +42,7 @@ genai_client = genai.Client(
 )
 
 # Gemini model selection
-GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
+GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-3.8-flash")
 
 # Memory storage configuration
 USE_GCS = os.getenv("USE_GCS", "false").lower() == "true"

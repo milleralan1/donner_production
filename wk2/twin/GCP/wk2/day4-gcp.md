@@ -202,7 +202,7 @@ twin/
 
 ### Step 2: Create Provider Configuration
 
-Create `terraform/versions.tf`:
+Create `../../terraform/versions.tf`:
 
 ```hcl
 terraform {
@@ -224,7 +224,7 @@ provider "google" {
 
 ### Step 3: Define Variables
 
-Create `terraform/variables.tf`:
+Create `../../terraform/variables.tf`:
 
 ```hcl
 variable "project_id" {
@@ -289,7 +289,7 @@ variable "cors_origins" {
 
 ### Step 4: Create Main Infrastructure
 
-Create `terraform/main.tf`:
+Create `../../terraform/main.tf`:
 
 ```hcl
 data "google_project" "current" {
@@ -451,7 +451,7 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
 
 ### Step 5: Define Outputs
 
-Create `terraform/outputs.tf`:
+Create `../../terraform/outputs.tf`:
 
 ```hcl
 output "cloud_run_url" {
@@ -477,7 +477,7 @@ output "cloud_run_service_name" {
 
 ### Step 6: Create Default Variable Values
 
-Create `terraform/terraform.tfvars`:
+Create `../../terraform/terraform.tfvars`:
 
 ```hcl
 project_id               = "your-gcp-project-id"
@@ -495,7 +495,7 @@ cors_origins             = "*"
 
 Before we create our deployment scripts, we need to update the frontend to use environment variables for the API URL instead of hardcoding it.
 
-Update `frontend/components/twin.tsx` - find the fetch call (around line 43) and replace:
+Update `../../frontend/components/twin.tsx` - find the fetch call (around line 43) and replace:
 
 ```typescript
 // Find this line:
@@ -531,7 +531,7 @@ firebase hosting:sites:create ${PROJECT_NAME}-test
 firebase hosting:sites:create ${PROJECT_NAME}-prod
 ```
 
-Then, in `frontend/`, create `.oldfirebaserc` mapping friendly target names to each site:
+Then, in `../../frontend`, create `.oldfirebaserc` mapping friendly target names to each site:
 
 ```bash
 firebase target:apply hosting dev ${PROJECT_NAME}-dev
@@ -539,7 +539,7 @@ firebase target:apply hosting test ${PROJECT_NAME}-test
 firebase target:apply hosting prod ${PROJECT_NAME}-prod
 ```
 
-Update `frontend/firebase.json` to reference the target instead of a single default site:
+Update `../../frontend/firebase.json` to reference the target instead of a single default site:
 
 ```json
 {
@@ -559,7 +559,7 @@ Deploying will now use `firebase deploy --only hosting:dev` (or `test` / `prod`)
 
 **Important**: All students (including Windows users) need to create this file, as it will be used by GitHub Actions on Day 5.
 
-Create `scripts/deploy.sh`:
+Create `../../scripts/deploy.sh`:
 
 ```bash
 #!/bin/bash
@@ -748,7 +748,7 @@ Cleaning up on GCP is considerably simpler than on AWS. Because `google_storage_
 
 ### Step 1: Create Destroy Script for Mac/Linux
 
-Create `scripts/destroy.sh`:
+Create `../../scripts/destroy.sh`:
 
 ```bash
 #!/bin/bash

@@ -163,7 +163,7 @@ GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
 # Memory storage configuration
 USE_GCS = os.getenv("USE_GCS", "false").lower() == "true"
 GCS_BUCKET = os.getenv("GCS_BUCKET", "")
-MEMORY_DIR = os.getenv("MEMORY_DIR", "../memory")
+MEMORY_DIR = os.getenv("MEMORY_DIR", "../../memory")
 
 # Initialize Cloud Storage client if needed
 if USE_GCS:

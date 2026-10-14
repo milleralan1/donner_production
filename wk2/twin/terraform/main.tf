@@ -84,6 +84,7 @@ resource "null_resource" "build_and_push" {
       for f in fileset("${path.module}/../backend", "**") :
       filesha1("${path.module}/../backend/${f}")
     ]))
+    deletion_protection = false
   }
 
   provisioner "local-exec" {
@@ -98,6 +99,7 @@ resource "google_cloud_run_v2_service" "api" {
   name     = "${local.name_prefix}-api"
   location = var.region
   labels   = local.common_labels
+  deletion_protection = false
 
   template {
     service_account = google_service_account.runtime.email

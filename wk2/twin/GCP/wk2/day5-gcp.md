@@ -195,7 +195,7 @@ On AWS, storing Terraform state remotely required an S3 bucket **and** a DynamoD
 
 ### Step 1: Create State Management Resources
 
-Create `terraform/backend-setup.tf`:
+Create `../../terraform/backend-setup.tf`:
 
 ```hcl
 # This file creates the Cloud Storage bucket for Terraform state
@@ -266,7 +266,7 @@ terraform {
 
 ### Step 5: Update Scripts for the GCS Backend
 
-Update `scripts/deploy.sh` — find the `terraform init -input=false` line and replace it:
+Update `../../scripts/deploy.sh` — find the `terraform init -input=false` line and replace it:
 
 ```bash
 # Old line:
@@ -292,7 +292,7 @@ terraform init -input=false `
   -backend-config="prefix=terraform/state/$Environment"
 ```
 
-Update `scripts/destroy.sh` the same way — add the same `PROJECT_NUMBER` lookup and `terraform init -input=false -backend-config=...` block right after `cd "$(dirname "$0")/../terraform"` and before the workspace check. Do the equivalent in `scripts/destroy.ps1`.
+Update `../../scripts/destroy.sh` the same way — add the same `PROJECT_NUMBER` lookup and `terraform init -input=false -backend-config=...` block right after `cd "$(dirname "$0")/../terraform"` and before the workspace check. Do the equivalent in `scripts/destroy.ps1`.
 
 Because our Cloud Storage buckets use `force_destroy = true`, the destroy scripts from Day 4 don't need any "empty the bucket first" logic — that entire step from the AWS version simply isn't needed here.
 
@@ -569,7 +569,7 @@ jobs:
           echo "🌐 Firebase Hosting: run 'firebase hosting:sites:list' or check the Firebase console"
 ```
 
-Note there's no separate "invalidate the CDN" step, unlike the CloudFront workflow — Firebase Hosting's `firebase deploy` (run inside `scripts/deploy.sh`) already invalidates its own cache on every deploy.
+Note there's no separate "invalidate the CDN" step, unlike the CloudFront workflow — Firebase Hosting's `firebase deploy` (run inside `../../scripts/deploy.sh`) already invalidates its own cache on every deploy.
 
 ### Step 3: Create Destroy Workflow
 
@@ -687,7 +687,7 @@ After each deployment completes, check the workflow summary for the Cloud Run UR
 
 ## Part 7: Fix UI Focus Issue and Add Avatar
 
-This part is entirely frontend code and has no cloud-provider-specific content — follow it exactly as written in the original guide: add an `inputRef`, refocus the input after each response in the `finally` block of `sendMessage`, and optionally drop a square `avatar.png` into `frontend/public/`. Commit and push as usual:
+This part is entirely frontend code and has no cloud-provider-specific content — follow it exactly as written in the original guide: add an `inputRef`, refocus the input after each response in the `finally` block of `sendMessage`, and optionally drop a square `avatar.png` into `../../frontend/public`. Commit and push as usual:
 
 ```bash
 git add frontend/components/twin.tsx

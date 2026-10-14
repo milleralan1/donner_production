@@ -30,7 +30,7 @@ mkdir data
 
 ### Step 2: Add Personal Data Files
 
-Create `backend/data/facts.json` with information about who your twin represents:
+Create `../../backend/data/facts.json` with information about who your twin represents:
 
 ```json
 {
@@ -56,7 +56,7 @@ Create `backend/data/facts.json` with information about who your twin represents
 }
 ```
 
-Create `backend/data/summary.txt` with a personal summary:
+Create `../../backend/data/summary.txt` with a personal summary:
 
 ```
 I am a [your profession] with [X years] of experience in [your field]. 
@@ -67,7 +67,7 @@ Currently, I'm focused on [current interests/projects].
 My background includes [relevant experience highlights].
 ```
 
-Create `backend/data/style.txt` with communication style notes:
+Create `../../backend/data/style.txt` with communication style notes:
 
 ```
 Communication style:
@@ -84,11 +84,11 @@ Please note: recently, LinkedIn has started to limit which kinds of account can 
 Save your LinkedIn profile as a PDF:
 1. Go to your LinkedIn profile
 2. Click "More" → "Save to PDF"
-3. Save as `backend/data/linkedin.pdf`
+3. Save as `../../backend/data/linkedin.pdf`
 
 ### Step 4: Create Resources Module
 
-Create `backend/resources.py` (unchanged — no cloud-specific code here):
+Create `../../backend/resources.py` (unchanged — no cloud-specific code here):
 
 ```python
 from pypdf import PdfReader
@@ -118,7 +118,7 @@ with open("./data/facts.json", "r", encoding="utf-8") as f:
 
 ### Step 5: Create Context Module
 
-Create `backend/context.py` (also unchanged):
+Create `../../backend/context.py` (also unchanged):
 
 ```python
 from resources import linkedin, summary, facts, style
@@ -183,7 +183,7 @@ Avoid responding in a way that feels like a chatbot or AI assistant, and don't e
 
 ### Step 6: Update Requirements
 
-Update `backend/requirements.txt`. We drop `boto3` and `mangum` (AWS-only) and add `google-cloud-storage`:
+Update `../../backend/requirements.txt`. We drop `boto3` and `mangum` (AWS-only) and add `google-cloud-storage`:
 
 ```
 fastapi
@@ -197,7 +197,7 @@ pypdf
 
 ### Step 7: Update Server for GCP
 
-Replace `backend/server.py` with this GCP-ready version. The only real changes from the AWS version are the storage backend (Google Cloud Storage client instead of boto3) and the related environment variable names:
+Replace `../../backend/server.py` with this GCP-ready version. The only real changes from the AWS version are the storage backend (Google Cloud Storage client instead of boto3) and the related environment variable names:
 
 ```python
 from fastapi import FastAPI, HTTPException
@@ -235,7 +235,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Memory storage configuration
 USE_GCS = os.getenv("USE_GCS", "false").lower() == "true"
 GCS_BUCKET = os.getenv("GCS_BUCKET", "")
-MEMORY_DIR = os.getenv("MEMORY_DIR", "../memory")
+MEMORY_DIR = os.getenv("MEMORY_DIR", "../../memory")
 
 # Initialize Cloud Storage client if needed
 # On Cloud Run, credentials are picked up automatically from the
