@@ -1,0 +1,14 @@
+project_id = "YOUR_PROJECT_ID"
+region     = "YOUR_REGION"
+
+# The Monitoring resource label uses PROJECT_ID:INSTANCE_ID (not the full connection name).
+cloud_sql_database_id = "YOUR_PROJECT_ID:YOUR_CLOUD_SQL_INSTANCE_ID"
+
+# Create notification channels in Cloud Monitoring first. Leave empty to create policies
+# without email/webhook delivery, then add the channel resource names here.
+notification_channel_ids = []
+
+# Adjust after observing normal development traffic.
+pubsub_backlog_threshold          = 100
+pubsub_oldest_message_age_seconds = 900
+cloud_sql_cpu_threshold           = 0.8

@@ -1,0 +1,28 @@
+project_id = "YOUR_PROJECT_ID"
+region     = "YOUR_REGION"
+groq_model = "groq/llama-3.3-70b-versatile"
+groq_api_key_secret_id = "alex-groq-api-key"
+
+agent_image_urls = {
+  planner   = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-agents/planner:dev"
+  tagger    = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-agents/tagger:dev"
+  reporter  = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-agents/reporter:dev"
+  charter   = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-agents/charter:dev"
+  retirement = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-agents/retirement:dev"
+}
+
+agent_service_account_email = "alex-agents@YOUR_PROJECT_ID.iam.gserviceaccount.com"
+api_service_account_email   = "alex-api@YOUR_PROJECT_ID.iam.gserviceaccount.com"
+
+database_connection_name    = "YOUR_PROJECT_ID:YOUR_REGION:alex-postgres"
+database_name               = "alex"
+database_user               = "alex_app"
+database_password_secret_id = "alex-cloud-sql-password"
+
+ingestion_service_name     = "alex-ingestion"
+ingestion_service_region   = "YOUR_REGION"
+ingestion_service_url      = "https://YOUR_INGESTION_SERVICE_URL"
+ingestion_service_audience = "https://YOUR_INGESTION_SERVICE_URL"
+
+# Optional: omit when price lookups are not configured.
+# polygon_api_key_secret_id = "alex-polygon-api-key"

@@ -1,0 +1,30 @@
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.17 /uv /uvx /bin/
+
+ARG AGENT_DIR
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080 \
+    PYTHONPATH=/app:/app/agent
+
+WORKDIR /app
+COPY database /app/database
+COPY gcp_agents /app/gcp_agents
+COPY ${AGENT_DIR}/pyproject.toml ${AGENT_DIR}/uv.lock /app/agent/
+
+WORKDIR /app/agent
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && uv sync --frozen --extra gcp --no-install-project --no-dev \
+    && apt-get purge -y --auto-remove build-essential \
+    && rm -rf /var/lib/apt/lists/* /root/.cache/uv
+COPY ${AGENT_DIR}/*.py /app/agent/
+COPY gcp_agents/gcp_server.py /app/agent/gcp_server.py
+
+RUN useradd --create-home --uid 10001 app \
+    && chown -R app:app /app
+USER app
+
+EXPOSE 8080
+CMD ["/app/agent/.venv/bin/uvicorn", "gcp_server:app", "--host", "0.0.0.0", "--port", "8080"]

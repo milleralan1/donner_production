@@ -1,0 +1,75 @@
+# Alex Architecture Overview - Google Cloud
+
+This is the GCP target architecture for Alex. It preserves the product behavior of the AWS reference design while replacing AWS-only managed services. GCP implementations are being added incrementally alongside the AWS reference path; check `README.md` for current layer status.
+
+## System architecture
+
+```mermaid
+graph TB
+    User[User Browser] -->|HTTPS| Frontend[Cloud CDN + Cloud Storage<br/>or Next.js on Cloud Run]
+    User -->|Clerk JWT| API[Cloud Run FastAPI]
+    Frontend --> API
+    API -->|Publish analysis job| PubSub[Pub/Sub + DLQ]
+    PubSub -->|Authenticated push| Planner[Planner on Cloud Run]
+    Planner --> Tagger[Tagger]
+    Planner --> Reporter[Reporter]
+    Planner --> Charter[Charter]
+    Planner --> Retirement[Retirement]
+    Agents --> SQL[(Cloud SQL for PostgreSQL)]
+    Reporter --> Vector[Vertex AI Vector Search]
+    Researcher[Researcher on Cloud Run] -->|Text generation| Groq[Groq API]
+    Researcher -->|Store research| Ingest[Cloud Run ingestion]
+    Ingest -->|Embedding| Vertex
+    Ingest -->|Documents| GCS[Cloud Storage]
+    Ingest --> Vector
+    Scheduler[Cloud Scheduler] -->|OIDC| Researcher
+    Secrets[Secret Manager] -.-> API
+    Secrets -.-> Agents
+```
+
+## Service mapping
+
+| AWS reference | Google Cloud target | Notes |
+|---|---|---|
+| IAM users/groups and roles | Cloud IAM users/groups and service accounts | Use workload identity where possible; avoid long-lived keys. |
+| SageMaker embedding endpoint | Vertex AI embedding API or a deployed Vertex AI endpoint | A managed model API usually avoids endpoint provisioning; verify model dimensions and billing. |
+| S3 Vectors | Vertex AI Vector Search | Not API-compatible; provisioned index/endpoint costs and lifecycle differ. Cloud SQL `pgvector` is another option for smaller workloads. |
+| S3 document bucket | Cloud Storage | Store source documents separately from vectors. |
+| Lambda / API Gateway | Cloud Run services; API Gateway optional | Keep APIs authenticated and validate Clerk JWTs in application code. |
+| App Runner | Cloud Run service | Containerized HTTP application. |
+| ECR | Artifact Registry | Store pinned container images. |
+| EventBridge Scheduler | Cloud Scheduler | Use OIDC-authenticated invocation. |
+| Bedrock | Groq API via LiteLLM | Model names, API key handling, tool calling, quotas, and LiteLLM config differ. |
+| Aurora Serverless v2 + Data API | Cloud SQL for PostgreSQL | Requires connector/networking; no equivalent Data API and normally ongoing instance costs. |
+| SQS | Pub/Sub | At-least-once delivery; use idempotency and a dead-letter topic. |
+| CloudFront + S3 website | Cloud CDN + Cloud Storage or Cloud Run | Cloud Storage hosting is suitable only for a compatible static export. |
+| CloudWatch / X-Ray | Cloud Logging / Cloud Monitoring / Cloud Trace | Confirm tracing instrumentation and sensitive-data handling. |
+| WAF / GuardDuty | Cloud Armor / Security Command Center and related controls | Different feature sets, configuration, availability, and pricing. |
+
+## Data and trust boundaries
+
+- Clerk remains the user identity provider. The API validates each token and scopes database reads/writes to the verified Clerk user ID.
+- Cloud IAM service accounts authenticate workloads to GCP APIs; they do not replace user authentication.
+- Keep personal financial data in Cloud SQL with appropriate encryption, backups, access controls, and retention.
+- Restrict vector search by tenant and enforce authorization in application logic.
+- Treat external web pages and retrieved documents as untrusted input to agents.
+- Keep secrets in Secret Manager and avoid logging prompts or financial records unnecessarily.
+
+## Deployment model
+
+Create new GCP Terraform stacks separate from the AWS directories. A sensible staged sequence is:
+
+1. Project, IAM, APIs, and billing alerts
+2. Vertex AI embedding model selection and validation
+3. Cloud Storage, vector index, ingestion and search services
+4. Researcher Cloud Run service and optional Cloud Scheduler job
+5. Cloud SQL database and migrations
+6. Agent Cloud Run services, Pub/Sub, and dead-letter handling
+7. API and frontend hosting
+8. Monitoring, security controls, and guardrails
+
+Keep Terraform state isolated per stage and protect it. Verify `terraform plan` and IAM grants before applying. Destroy development resources when not in use, keeping data retention and backups in mind.
+
+## Cost considerations
+
+The most material differences are likely Cloud SQL's running-instance charge, Vertex AI Vector Search's deployed-index/endpoint costs, model token/embedding usage, Cloud Run minimum instances, network egress, and Cloud Logging retention. Pricing and free tiers change; check current regional pricing and set billing alerts rather than copying AWS estimates.

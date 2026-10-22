@@ -1,0 +1,22 @@
+project_id = "YOUR_PROJECT_ID"
+region     = "YOUR_REGION"
+
+api_image_url      = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-app/api:dev"
+frontend_image_url = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-app/frontend:dev"
+
+api_service_account_email = "alex-api@YOUR_PROJECT_ID.iam.gserviceaccount.com"
+
+database_connection_name    = "YOUR_PROJECT_ID:YOUR_REGION:alex-postgres"
+database_name               = "alex"
+database_user               = "alex_app"
+database_password_secret_id = "alex-cloud-sql-password"
+
+pubsub_topic_id = "alex-analysis-jobs"
+
+clerk_jwks_url             = "https://YOUR_CLERK_INSTANCE/.well-known/jwks.json"
+clerk_issuer               = "https://YOUR_CLERK_INSTANCE"
+clerk_publishable_key      = "pk_test_REPLACE_ME"
+clerk_secret_key_secret_id = "alex-clerk-secret-key"
+
+# Leave empty on the initial apply. Set this to the frontend_url output afterward.
+frontend_origin = ""
