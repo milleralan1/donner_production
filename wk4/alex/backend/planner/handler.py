@@ -1,8 +1,7 @@
 """
-Financial Planner Orchestrator Lambda Handler
+Financial Planner Orchestrator Handler
 """
 
-import os
 import json
 import asyncio
 import logging
@@ -10,7 +9,7 @@ from typing import Dict, Any
 
 from agents import Agent, Runner, trace
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from litellm.exceptions import RateLimitError
+from openai import RateLimitError
 
 try:
     from dotenv import load_dotenv
@@ -83,99 +82,58 @@ async def run_orchestrator(job_id: str) -> None:
         db.jobs.update_status(job_id, 'failed', error_message=str(e))
         raise
 
-def lambda_handler(event, context):
+def handle_event(event):
     """
-    Lambda handler for SQS-triggered orchestration.
+    Entrypoint for GCP Cloud Run (Pub/Sub push or direct invocation).
 
-    Expected event from SQS:
-    {
-        "Records": [
-            {
-                "body": "job_id"
-            }
-        ]
-    }
+    Accepted event shapes:
+      Pub/Sub push (via gcp_agents/gcp_server.py /pubsub endpoint):
+        {"job_id": "<uuid>"}
+
+      Direct invocation (testing / planner tool calls):
+        {"job_id": "<uuid>"}
+
     """
     # Wrap entire handler with observability context
     with observe():
         try:
-            logger.info(f"Planner Lambda invoked with event: {json.dumps(event)[:500]}")
+            logger.info(f"Planner invoked with event: {json.dumps(event)[:500]}")
 
-            # Extract job_id from SQS message
-            if 'Records' in event and len(event['Records']) > 0:
-                # SQS message
-                job_id = event['Records'][0]['body']
-                if isinstance(job_id, str) and job_id.startswith('{'):
-                    # Body might be JSON
-                    try:
-                        body = json.loads(job_id)
-                        job_id = body.get('job_id', job_id)
-                    except json.JSONDecodeError:
-                        pass
-            elif 'job_id' in event:
-                # Direct invocation
-                job_id = event['job_id']
-            else:
-                logger.error("No job_id found in event")
-                return {
-                    'statusCode': 400,
-                    'body': json.dumps({'error': 'No job_id provided'})
-                }
+            job_id = event.get('job_id')
+            if not job_id:
+                raise ValueError("job_id is required")
 
             logger.info(f"Planner: Starting orchestration for job {job_id}")
 
-            if os.getenv("ALEX_LLM_PROVIDER", "bedrock").lower() == "groq":
-                if not db.jobs.claim_for_processing(job_id):
-                    job = db.jobs.find_by_id(job_id)
-                    if not job:
-                        logger.warning("Planner: Job %s no longer exists", job_id)
-                        return {
-                            "statusCode": 200,
-                            "body": json.dumps({"success": True, "message": "Job no longer exists"}),
-                        }
-                    if job.get("status") in {"running", "completed"}:
-                        if job["status"] == "running":
-                            logger.info(
-                                "Planner: Deferring duplicate delivery for running job %s",
-                                job_id,
-                            )
-                            return {
-                                "statusCode": 503,
-                                "body": json.dumps(
-                                    {"success": False, "message": "Job is already running"}
-                                ),
-                            }
-                        logger.info("Planner: Ignoring completed job %s", job_id)
-                        return {
-                            "statusCode": 200,
-                            "body": json.dumps(
-                                {"success": True, "message": "Job already completed"}
-                            ),
-                        }
-                    raise RuntimeError(
-                        f"Could not claim job {job_id} in state {job.get('status')}"
-                    )
+            if not db.jobs.claim_for_processing(job_id):
+                job = db.jobs.find_by_id(job_id)
+                if not job:
+                    logger.warning("Planner: Job %s no longer exists", job_id)
+                    return {"success": True, "message": "Job no longer exists"}
+                if job.get("status") in {"running", "completed"}:
+                    if job["status"] == "running":
+                        logger.info(
+                            "Planner: Deferring duplicate delivery for running job %s",
+                            job_id,
+                        )
+                        return {"retry": True, "message": "Job is already running"}
+                    logger.info("Planner: Ignoring completed job %s", job_id)
+                    return {"success": True, "message": "Job already completed"}
+                raise RuntimeError(
+                    f"Could not claim job {job_id} in state {job.get('status')}"
+                )
 
             # Run the orchestrator
             asyncio.run(run_orchestrator(job_id))
 
             return {
-                'statusCode': 200,
-                'body': json.dumps({
-                    'success': True,
-                    'message': f'Analysis completed for job {job_id}'
-                })
+                "success": True,
+                "message": f"Analysis completed for job {job_id}",
             }
 
         except Exception as e:
-            logger.error(f"Planner: Error in lambda handler: {e}", exc_info=True)
-            return {
-                'statusCode': 500,
-                'body': json.dumps({
-                    'success': False,
-                    'error': str(e)
-                })
-            }
+            logger.error(f"Planner: Error handling request: {e}", exc_info=True)
+            raise
 
 # For local testing
 if __name__ == "__main__":
@@ -212,5 +170,5 @@ if __name__ == "__main__":
         'job_id': job_id
     }
     
-    result = lambda_handler(test_event, None)
+    result = handle_event(test_event)
     print(json.dumps(result, indent=2))

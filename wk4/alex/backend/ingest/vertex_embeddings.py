@@ -1,4 +1,4 @@
-"""Vertex AI text embeddings, isolated from the existing AWS implementation."""
+"""Generate text embeddings with Vertex AI."""
 
 import math
 import os

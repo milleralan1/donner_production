@@ -25,10 +25,10 @@ class AgentRequest(BaseModel):
 
 
 def _get_agent_handler() -> Callable:
-    module = importlib.import_module("lambda_handler")
-    handler = getattr(module, "lambda_handler", None)
+    module = importlib.import_module("handler")
+    handler = getattr(module, "handle_event", None)
     if not callable(handler):
-        raise RuntimeError("Agent module has no callable lambda_handler")
+        raise RuntimeError("Agent module has no callable handle_event")
     return handler
 
 
@@ -41,25 +41,19 @@ def _get_agent_role() -> str:
 
 async def _invoke(handler: Callable, event: dict) -> dict:
     try:
-        result = await asyncio.to_thread(handler, event, None)
+        result = await asyncio.to_thread(handler, event)
+    except HTTPException:
+        raise
     except Exception as error:
         logger.error("Agent execution raised %s", type(error).__name__)
         raise HTTPException(status_code=502, detail="Agent execution failed") from error
 
-    status_code = result.get("statusCode", 500) if isinstance(result, dict) else 500
-    body = result.get("body", {}) if isinstance(result, dict) else {}
-    if status_code < 200 or status_code >= 300:
-        logger.error("Agent execution returned HTTP %s", status_code)
-        raise HTTPException(status_code=502, detail="Agent execution failed")
-
-    if isinstance(body, str):
-        try:
-            body = json.loads(body)
-        except json.JSONDecodeError:
-            body = {"message": body}
-    if not isinstance(body, dict):
+    if not isinstance(result, dict):
         raise HTTPException(status_code=502, detail="Agent returned an invalid response")
-    return body
+    if result.get("retry"):
+        raise HTTPException(status_code=503, detail="Agent execution should be retried")
+
+    return result
 
 
 def create_app(handler_getter: Callable[[], Callable] = _get_agent_handler) -> FastAPI:

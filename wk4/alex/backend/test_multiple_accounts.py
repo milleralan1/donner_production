@@ -6,7 +6,6 @@ Test that the system correctly handles users with multiple accounts.
 import json
 import time
 import uuid
-import boto3
 import os
 from decimal import Decimal
 from dotenv import load_dotenv
@@ -139,23 +138,11 @@ def test_multiple_accounts():
     job_id = db.jobs.create_job(test_user_id, "portfolio_analysis")
     print(f'\n🚀 Created job: {job_id}')
     
-    # Trigger analysis via SQS
-    """Send a job to SQS"""
-    sqs = boto3.client('sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1'))
-    
-    # Get queue URL
-    queue_name = 'alex-analysis-jobs'
-    response = sqs.get_queue_url(QueueName=queue_name)
-    queue_url = response['QueueUrl']
-
-    # sqs = boto3.client('sqs', region_name='ap-southeast-2')
-    # queue_url = 'https://sqs.ap-southeast-2.amazonaws.com/596644540428/alex-analysis-jobs'
-    
-    message = sqs.send_message(
-        QueueUrl=queue_url,
-        MessageBody=json.dumps({'job_id': job_id})
-    )
-    print(f'📤 Sent message to SQS: {message["MessageId"]}')
+    # Trigger analysis via GCP Pub/Sub
+    from api.gcp_queue import publish_analysis_job
+    pubsub_topic = os.getenv('PUBSUB_TOPIC', 'alex-analysis-jobs')
+    msg_id = publish_analysis_job(pubsub_topic, job_id)
+    print(f'📤 Published to Pub/Sub: {msg_id}')
     
     print('\n⏳ Monitoring job progress...')
     print('-' * 50)

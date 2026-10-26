@@ -10,7 +10,6 @@ from typing import Dict, Any
 from datetime import datetime
 
 # No tools needed - simplified agent
-from agents.extensions.models.litellm_model import LitellmModel
 
 logger = logging.getLogger()
 
@@ -230,7 +229,7 @@ def generate_projections(
     return projections
 
 
-# Tool removed - analysis is now saved directly in lambda_handler
+# The handler saves the analysis directly.
 
 
 def create_agent(
@@ -238,15 +237,9 @@ def create_agent(
 ):
     """Create the retirement agent with tools and context."""
 
-    if os.getenv("ALEX_LLM_PROVIDER", "bedrock").lower() == "groq":
-        from gcp_agents.groq_model import create_groq_model
+    from gcp_agents.groq_model import create_groq_model
 
-        model = create_groq_model()
-    else:
-        model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-        bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-        os.environ["AWS_REGION_NAME"] = bedrock_region
-        model = LitellmModel(model=f"bedrock/{model_id}")
+    model = create_groq_model()
 
     # Extract user preferences
     years_until_retirement = user_preferences.get("years_until_retirement", 30)

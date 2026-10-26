@@ -1,10 +1,10 @@
 [project]
 name = "alex-database"
 version = "0.1.0"
-description = "Provider-selectable PostgreSQL database package for Alex Financial Planner"
+description = "Cloud SQL PostgreSQL database package for Alex Financial Planner"
 requires-python = ">=3.12"
 dependencies = [
-    "boto3>=1.40.8",
+    "cloud-sql-python-connector[pg8000]>=1.18.2",
     "pydantic>=2.11.7",
     "python-dotenv>=1.1.1",
 ]

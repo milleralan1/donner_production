@@ -29,9 +29,9 @@ def test_agent(agent_name, test_file="test_simple.py"):
         print(f"  ⚠️  {agent_name}: No {test_file} found, skipping")
         return True  # Not a failure, just skip
     
-    # Set environment for mocked lambdas
+    # Set environment for mocked agent services
     env = os.environ.copy()
-    env['MOCK_LAMBDAS'] = 'true'
+    env['MOCK_AGENT_SERVICES'] = 'true'
     
     # Run the test with uv
     success, stdout, stderr = run_command(

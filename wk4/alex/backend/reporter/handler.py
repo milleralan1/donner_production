@@ -1,5 +1,5 @@
 """
-Report Writer Agent Lambda Handler
+Report Writer Agent Handler
 """
 
 import os
@@ -11,7 +11,7 @@ from datetime import datetime
 
 from agents import Agent, Runner, trace
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from litellm.exceptions import RateLimitError
+from openai import RateLimitError
 from judge import evaluate
 
 GUARD_AGAINST_SCORE = 0.3  # Guard against score being too low
@@ -102,9 +102,9 @@ async def run_reporter_agent(
         }
 
 
-def lambda_handler(event, context):
+def handle_event(event):
     """
-    Lambda handler expecting job_id, portfolio_data, and user_data in event.
+    Process a request containing job_id, portfolio_data, and user_data.
 
     Expected event:
     {
@@ -116,7 +116,7 @@ def lambda_handler(event, context):
     # Wrap entire handler with observability context
     with observe() as observability:
         try:
-            logger.info(f"Reporter Lambda invoked with event: {json.dumps(event)[:500]}")
+            logger.info(f"Reporter invoked with event: {json.dumps(event)[:500]}")
 
             # Parse event
             if isinstance(event, str):
@@ -124,7 +124,7 @@ def lambda_handler(event, context):
 
             job_id = event.get("job_id")
             if not job_id:
-                return {"statusCode": 400, "body": json.dumps({"error": "job_id is required"})}
+                raise ValueError("job_id is required")
 
             # Initialize database
             db = Database()
@@ -169,16 +169,10 @@ def lambda_handler(event, context):
 
                             portfolio_data["accounts"].append(account_data)
                     else:
-                        return {
-                            "statusCode": 404,
-                            "body": json.dumps({"error": f"Job {job_id} not found"}),
-                        }
+                        raise ValueError(f"Job {job_id} not found")
                 except Exception as e:
                     logger.error(f"Could not load portfolio from database: {e}")
-                    return {
-                        "statusCode": 400,
-                        "body": json.dumps({"error": "No portfolio data provided"}),
-                    }
+                    raise RuntimeError("Could not load portfolio from database") from e
 
             user_data = event.get("user_data", {})
             if not user_data:
@@ -215,11 +209,11 @@ def lambda_handler(event, context):
 
             logger.info(f"Reporter completed for job {job_id}")
 
-            return {"statusCode": 200, "body": json.dumps(result)}
+            return result
 
         except Exception as e:
             logger.error(f"Error in reporter: {e}", exc_info=True)
-            return {"statusCode": 500, "body": json.dumps({"success": False, "error": str(e)})}
+            raise
 
 
 # For local testing
@@ -248,5 +242,5 @@ if __name__ == "__main__":
         "user_data": {"years_until_retirement": 25, "target_retirement_income": 75000},
     }
 
-    result = lambda_handler(test_event, None)
+    result = handle_event(test_event)
     print(json.dumps(result, indent=2))

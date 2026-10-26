@@ -4,7 +4,6 @@ Financial Planner Orchestrator Agent - coordinates portfolio analysis across spe
 
 import os
 import json
-import boto3
 import logging
 import asyncio
 from typing import Dict, List, Any, Optional
@@ -12,19 +11,11 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from agents import function_tool, RunContextWrapper
-from agents.extensions.models.litellm_model import LitellmModel
 
 logger = logging.getLogger()
 
-GCP_RUNTIME = os.getenv("ALEX_LLM_PROVIDER", "bedrock").lower() == "groq"
-lambda_client = None if GCP_RUNTIME else boto3.client("lambda")
 
-# Lambda function names from environment
-TAGGER_FUNCTION = os.getenv("TAGGER_FUNCTION", "alex-tagger")
-REPORTER_FUNCTION = os.getenv("REPORTER_FUNCTION", "alex-reporter")
-CHARTER_FUNCTION = os.getenv("CHARTER_FUNCTION", "alex-charter")
-RETIREMENT_FUNCTION = os.getenv("RETIREMENT_FUNCTION", "alex-retirement")
-MOCK_LAMBDAS = os.getenv("MOCK_LAMBDAS", "false").lower() == "true"
+MOCK_AGENT_SERVICES = os.getenv("MOCK_AGENT_SERVICES", "false").lower() == "true"
 
 
 @dataclass
@@ -33,48 +24,19 @@ class PlannerContext:
     job_id: str
 
 
-async def invoke_lambda_agent(
-    agent_name: str, function_name: str, payload: Dict[str, Any]
+async def invoke_agent_service(
+    agent_name: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Invoke a Lambda function for an agent."""
+    """Invoke a private agent service or return a local test stub."""
 
     # For local testing with mocked agents
-    if MOCK_LAMBDAS:
+    if MOCK_AGENT_SERVICES:
         logger.info(f"[MOCK] Would invoke {agent_name} with payload: {json.dumps(payload)[:200]}")
         return {"success": True, "message": f"[Mock] {agent_name} completed", "mock": True}
 
-    if GCP_RUNTIME:
-        return await asyncio.to_thread(
-            invoke_cloud_run_agent, agent_name, payload
-        )
-
-    try:
-        logger.info(f"Invoking {agent_name} Lambda: {function_name}")
-
-        response = lambda_client.invoke(
-            FunctionName=function_name,
-            InvocationType="RequestResponse",
-            Payload=json.dumps(payload),
-        )
-
-        result = json.loads(response["Payload"].read())
-
-        # Unwrap Lambda response if it has the standard format
-        if isinstance(result, dict) and "statusCode" in result and "body" in result:
-            if isinstance(result["body"], str):
-                try:
-                    result = json.loads(result["body"])
-                except json.JSONDecodeError:
-                    result = {"message": result["body"]}
-            else:
-                result = result["body"]
-
-        logger.info(f"{agent_name} completed successfully")
-        return result
-
-    except Exception as e:
-        logger.error(f"Error invoking {agent_name}: {e}")
-        return {"error": str(e)}
+    return await asyncio.to_thread(
+        invoke_cloud_run_agent, agent_name, payload
+    )
 
 
 def invoke_cloud_run_agent(agent_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -140,35 +102,15 @@ def handle_missing_instruments(job_id: str, db) -> None:
         )
 
         try:
-            if GCP_RUNTIME:
-                result = invoke_cloud_run_agent(
-                    "Tagger", {"instruments": missing}
-                )
-                if result.get("errors"):
-                    raise RuntimeError("Tagger reported instrument update errors")
-                logger.info(
-                    "Planner: InstrumentTagger completed - Tagged %s instruments",
-                    len(result.get("updated", [])),
-                )
-                return
-
-            response = lambda_client.invoke(
-                FunctionName=TAGGER_FUNCTION,
-                InvocationType="RequestResponse",
-                Payload=json.dumps({"instruments": missing}),
+            result = invoke_cloud_run_agent(
+                "Tagger", {"instruments": missing}
             )
-
-            result = json.loads(response["Payload"].read())
-
-            if isinstance(result, dict) and "statusCode" in result:
-                if result["statusCode"] == 200:
-                    logger.info(
-                        f"Planner: InstrumentTagger completed - Tagged {len(missing)} instruments"
-                    )
-                else:
-                    logger.error(
-                        f"Planner: InstrumentTagger failed with status {result['statusCode']}"
-                    )
+            if result.get("errors"):
+                raise RuntimeError("Tagger reported instrument update errors")
+            logger.info(
+                "Planner: InstrumentTagger completed - Tagged %s instruments",
+                len(result.get("updated", [])),
+            )
 
         except Exception as e:
             logger.error(f"Planner: Error tagging instruments: {e}")
@@ -226,7 +168,7 @@ def load_portfolio_summary(job_id: str, db) -> Dict[str, Any]:
 
 async def invoke_reporter_internal(job_id: str) -> str:
     """
-    Invoke the Report Writer Lambda to generate portfolio analysis narrative.
+    Invoke the Report Writer service to generate portfolio analysis narrative.
 
     Args:
         job_id: The job ID for the analysis
@@ -234,7 +176,7 @@ async def invoke_reporter_internal(job_id: str) -> str:
     Returns:
         Confirmation message
     """
-    result = await invoke_lambda_agent("Reporter", REPORTER_FUNCTION, {"job_id": job_id})
+    result = await invoke_agent_service("Reporter", {"job_id": job_id})
 
     if "error" in result:
         return f"Reporter agent failed: {result['error']}"
@@ -244,7 +186,7 @@ async def invoke_reporter_internal(job_id: str) -> str:
 
 async def invoke_charter_internal(job_id: str) -> str:
     """
-    Invoke the Chart Maker Lambda to create portfolio visualizations.
+    Invoke the Chart Maker service to create portfolio visualizations.
 
     Args:
         job_id: The job ID for the analysis
@@ -252,9 +194,7 @@ async def invoke_charter_internal(job_id: str) -> str:
     Returns:
         Confirmation message
     """
-    result = await invoke_lambda_agent(
-        "Charter", CHARTER_FUNCTION, {"job_id": job_id}
-    )
+    result = await invoke_agent_service("Charter", {"job_id": job_id})
 
     if "error" in result:
         return f"Charter agent failed: {result['error']}"
@@ -264,7 +204,7 @@ async def invoke_charter_internal(job_id: str) -> str:
 
 async def invoke_retirement_internal(job_id: str) -> str:
     """
-    Invoke the Retirement Specialist Lambda for retirement projections.
+    Invoke the Retirement Specialist service for retirement projections.
 
     Args:
         job_id: The job ID for the analysis
@@ -272,7 +212,7 @@ async def invoke_retirement_internal(job_id: str) -> str:
     Returns:
         Confirmation message
     """
-    result = await invoke_lambda_agent("Retirement", RETIREMENT_FUNCTION, {"job_id": job_id})
+    result = await invoke_agent_service("Retirement", {"job_id": job_id})
 
     if "error" in result:
         return f"Retirement agent failed: {result['error']}"
@@ -303,16 +243,9 @@ def create_agent(job_id: str, portfolio_summary: Dict[str, Any], db):
     # Create context for tools
     context = PlannerContext(job_id=job_id)
 
-    if GCP_RUNTIME:
-        from gcp_agents.groq_model import create_groq_model
+    from gcp_agents.groq_model import create_groq_model
 
-        model = create_groq_model()
-    else:
-        # Get model configuration
-        model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-        bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-        os.environ["AWS_REGION_NAME"] = bedrock_region
-        model = LitellmModel(model=f"bedrock/{model_id}")
+    model = create_groq_model()
 
     tools = [
         invoke_reporter,

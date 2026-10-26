@@ -25,4 +25,4 @@ ingestion_service_url      = "https://YOUR_INGESTION_SERVICE_URL"
 ingestion_service_audience = "https://YOUR_INGESTION_SERVICE_URL"
 
 # Optional: omit when price lookups are not configured.
-# polygon_api_key_secret_id = "alex-polygon-api-key"
+# massive_api_key_secret_id = "alex-massive-api-key"

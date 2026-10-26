@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --extra gcp --no-dev
+RUN uv sync --frozen --no-install-project --no-dev
 COPY vertex_embeddings.py gcp_ingestion.py gcp_service.py ./
 
 CMD ["/app/.venv/bin/uvicorn", "gcp_service:app", "--host", "0.0.0.0", "--port", "8080"]

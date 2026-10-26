@@ -1,5 +1,5 @@
 """
-Chart Maker Agent Lambda Handler
+Chart Maker Agent Handler
 """
 
 import os
@@ -10,7 +10,7 @@ from typing import Dict, Any
 
 from agents import Agent, Runner, trace
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from litellm.exceptions import RateLimitError
+from openai import RateLimitError
 
 try:
     from dotenv import load_dotenv
@@ -124,9 +124,9 @@ async def run_charter_agent(job_id: str, portfolio_data: Dict[str, Any], db=None
             'chart_keys': list(charts_data.keys()) if charts_data else []
         }
 
-def lambda_handler(event, context):
+def handle_event(event):
     """
-    Lambda handler expecting job_id and portfolio_data in event.
+    Process a request containing job_id and portfolio_data.
 
     Expected event:
     {
@@ -137,7 +137,7 @@ def lambda_handler(event, context):
     # Wrap entire handler with observability context
     with observe():
         try:
-            logger.info(f"Charter Lambda invoked with event keys: {list(event.keys()) if isinstance(event, dict) else 'not a dict'}")
+            logger.info(f"Charter invoked with event keys: {list(event.keys()) if isinstance(event, dict) else 'not a dict'}")
 
             # Parse event
             if isinstance(event, str):
@@ -145,10 +145,7 @@ def lambda_handler(event, context):
 
             job_id = event.get('job_id')
             if not job_id:
-                return {
-                    'statusCode': 400,
-                    'body': json.dumps({'error': 'job_id is required'})
-                }
+                raise ValueError("job_id is required")
 
             # Initialize database first
             db = Database()
@@ -194,17 +191,10 @@ def lambda_handler(event, context):
 
                         logger.info(f"Charter: Loaded {len(portfolio_data['accounts'])} accounts with positions")
                     else:
-                        logger.error(f"Charter: Job {job_id} not found")
-                        return {
-                            'statusCode': 404,
-                            'body': json.dumps({'error': 'Job not found'})
-                        }
+                        raise ValueError(f"Job {job_id} not found")
                 except Exception as e:
                     logger.error(f"Charter: Error loading portfolio data: {e}")
-                    return {
-                        'statusCode': 500,
-                        'body': json.dumps({'error': f'Failed to load portfolio data: {str(e)}'})
-                    }
+                    raise RuntimeError("Failed to load portfolio data") from e
 
             logger.info(f"Charter: Processing job {job_id}")
 
@@ -213,20 +203,11 @@ def lambda_handler(event, context):
 
             logger.info(f"Charter completed for job {job_id}: {result}")
 
-            return {
-                'statusCode': 200,
-                'body': json.dumps(result)
-            }
+            return result
 
         except Exception as e:
             logger.error(f"Error in charter: {e}", exc_info=True)
-            return {
-                'statusCode': 500,
-                'body': json.dumps({
-                    'success': False,
-                    'error': str(e)
-                })
-            }
+            raise
 
 # For local testing
 if __name__ == "__main__":
@@ -257,5 +238,5 @@ if __name__ == "__main__":
         }
     }
     
-    result = lambda_handler(test_event, None)
+    result = handle_event(test_event)
     print(json.dumps(result, indent=2))

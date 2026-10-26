@@ -2,7 +2,6 @@ from agents import Agent, Runner
 from pydantic import BaseModel, Field
 import os
 import logging
-from agents.extensions.models.litellm_model import LitellmModel
 
 logger = logging.getLogger()
 
@@ -17,22 +16,16 @@ class Evaluation(BaseModel):
 
 
 async def evaluate(original_instructions, original_task, original_output) -> Evaluation:
-    # Get model configuration
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-    # Set region for LiteLLM Bedrock calls
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-    logger.info(f"DEBUG: BEDROCK_REGION from env = {bedrock_region}")
-    os.environ["AWS_REGION_NAME"] = bedrock_region
-    logger.info(f"DEBUG: Set AWS_REGION_NAME to {bedrock_region}")
+    """Evaluate a financial report using the configured Groq model."""
+    from gcp_agents.groq_model import create_groq_model
 
-    model = LitellmModel(model=f"bedrock/{model_id}")
+    model = create_groq_model()
 
     instructions = """
 You are an Evaluation Agent that evaluates the quality of a financial report from a financial planning agent.
 You will be provided with the instructions that were sent to the analyst, and its output, and you must evaluate the quality of the output.
 """
 
-    # Create task
     task = f"""
 The financial planning agent was given the following instructions:
 

@@ -2,10 +2,13 @@
 
 import os
 
-from agents.extensions.models.litellm_model import LitellmModel
+from agents import OpenAIChatCompletionsModel
+from openai import AsyncOpenAI
+
+GROQ_API_BASE_URL = "https://api.groq.com/openai/v1"
 
 
-def create_groq_model() -> LitellmModel:
+def create_groq_model() -> OpenAIChatCompletionsModel:
     api_key = os.environ.get("GROQ_API_KEY")
     model_name = os.environ.get("GROQ_MODEL")
     missing = [
@@ -16,5 +19,10 @@ def create_groq_model() -> LitellmModel:
     if missing:
         raise ValueError("Missing Groq configuration: " + ", ".join(missing))
     if not model_name.startswith("groq/"):
-        raise ValueError("GROQ_MODEL must use the groq/ LiteLLM prefix")
-    return LitellmModel(model=model_name)
+        raise ValueError("GROQ_MODEL must use the groq/ model prefix")
+
+    client = AsyncOpenAI(api_key=api_key, base_url=GROQ_API_BASE_URL)
+    return OpenAIChatCompletionsModel(
+        model=model_name.removeprefix("groq/"),
+        openai_client=client,
+    )

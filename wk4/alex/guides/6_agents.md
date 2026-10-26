@@ -93,27 +93,13 @@ Our agents use Amazon's Nova Pro model for improved reliability. Let's ensure yo
 
 ## Step 1: Configure Environment Variables
 
-Our agents need several environment variables, including a Polygon API key for real-time market data.
+Our agents need several environment variables, including a Massive API key for real-time market data.
 
-### 1.1 Get Polygon API Key (Free)
+### 1.1 Get a Massive API Key
 
-The Planner agent fetches real-time stock prices using Polygon.io. Let's get a free API key:
+The Planner agent fetches stock prices using Massive. Create an account and generate an API key in the Massive dashboard. Check the current plan limits and data availability there.
 
-1. Go to [polygon.io](https://polygon.io)
-2. Click **Get your Free API Key**
-3. Sign up with email (no credit card required)
-4. Verify your email
-5. Copy your API key from the dashboard
-
-The free tier includes:
-- 5 API calls per minute
-- End-of-day price data
-- Perfect for development and testing
-
-**Optional**: For production use, consider the Basic plan ($29/month) for:
-- 100 API calls per minute
-- Real-time price data
-- WebSocket streaming
+Store the key as `MASSIVE_API_KEY` in your local backend environment. Set `MASSIVE_PLAN` to `free` or `paid` to select the matching price lookup behavior.
 
 ### 1.2 Configure Agent Environment
 
@@ -125,9 +111,9 @@ BEDROCK_MODEL_ID=us.amazon.nova-pro-v1:0
 BEDROCK_REGION=us-west-2
 DEFAULT_AWS_REGION=us-east-1  # Or your preferred region
 
-# Polygon.io API for real-time stock prices (sign up free at polygon.io) - change free to paid if you're using paid plan
-POLYGON_API_KEY=your_polygon_api_key_here
-POLYGON_PLAN=free
+# Massive API for market data
+MASSIVE_API_KEY=your_massive_api_key_here
+MASSIVE_PLAN=free
 ```
 
 The `BEDROCK_MODEL_ID` uses Amazon's Nova Pro model which has excellent tool-calling capabilities and high rate limits.
@@ -331,9 +317,9 @@ bedrock_region = "us-west-2"
 # SageMaker endpoint name from Part 2
 sagemaker_endpoint = "alex-embedding-endpoint"
 
-# Polygon API configuration (for real-time prices)
-polygon_api_key = "your_polygon_api_key_here"
-polygon_plan = "free"
+# Massive API configuration (for real-time prices)
+massive_api_key = "your_massive_api_key_here"
+massive_plan    = "free"
 ```
 
 ## Step 6: Deploy Infrastructure

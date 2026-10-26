@@ -1,7 +1,4 @@
-"""
-Database package for Alex Financial Planner
-Provides database models, schemas, and provider-selectable clients
-"""
+"""Cloud SQL database package for Alex Financial Planner."""
 
 from .cloud_sql_client import CloudSQLClient
 from .models import Database
@@ -31,7 +28,6 @@ from .schemas import (
 
 __all__ = [
     'Database',
-    'DataAPIClient',
     'CloudSQLClient',
     'InstrumentCreate',
     'UserCreate',

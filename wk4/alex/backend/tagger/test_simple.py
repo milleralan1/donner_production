@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-from lambda_handler import lambda_handler
+from handler import handle_event
 
 def test_tagger():
     """Test the tagger agent with unknown instruments"""
@@ -23,19 +23,19 @@ def test_tagger():
     print("Testing Tagger Agent...")
     print("=" * 60)
     
-    result = lambda_handler(test_event, None)
+    result = handle_event(test_event)
     
-    print(f"Status Code: {result['statusCode']}")
+    print(f"Result: {result}")
     
-    if result['statusCode'] == 200:
-        body = json.loads(result['body'])
+    if result.get('success', True):
+        body = result
         print(f"Tagged: {body.get('tagged', 0)} instruments")
         print(f"Updated: {body.get('updated', [])}")
         if body.get('classifications'):
             for c in body['classifications']:
                 print(f"  {c['symbol']}: {c['type']}")
     else:
-        print(f"Error: {result['body']}")
+        print(f"Error: {result.get('error', 'No result')}")
     
     print("=" * 60)
 

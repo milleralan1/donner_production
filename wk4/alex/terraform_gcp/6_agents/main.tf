@@ -14,6 +14,11 @@ provider "google" {
   region  = var.region
 }
 
+moved {
+  from = google_secret_manager_secret_iam_member.polygon_api_key
+  to   = google_secret_manager_secret_iam_member.massive_api_key
+}
+
 locals {
   agent_roles = toset(["planner", "tagger", "reporter", "charter", "retirement"])
   common_env = {
@@ -78,10 +83,10 @@ resource "google_secret_manager_secret_iam_member" "groq_api_key" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_secret_manager_secret_iam_member" "polygon_api_key" {
-  count     = var.polygon_api_key_secret_id == null ? 0 : 1
+resource "google_secret_manager_secret_iam_member" "massive_api_key" {
+  count     = var.massive_api_key_secret_id == null ? 0 : 1
   project   = var.project_id
-  secret_id = var.polygon_api_key_secret_id
+  secret_id = var.massive_api_key_secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${data.google_service_account.agents.email}"
 }
@@ -191,9 +196,9 @@ resource "google_cloud_run_v2_service" "agent" {
       }
 
       dynamic "env" {
-        for_each = each.key == "planner" && var.polygon_api_key_secret_id != null ? [var.polygon_api_key_secret_id] : []
+        for_each = each.key == "planner" && var.massive_api_key_secret_id != null ? [var.massive_api_key_secret_id] : []
         content {
-          name = "POLYGON_API_KEY"
+          name = "MASSIVE_API_KEY"
           value_source {
             secret_key_ref {
               secret  = env.value

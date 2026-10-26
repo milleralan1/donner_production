@@ -15,7 +15,6 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
-from mangum import Mangum
 from dotenv import load_dotenv
 from fastapi_clerk_auth import ClerkConfig, ClerkHTTPBearer, HTTPAuthorizationCredentials
 
@@ -95,19 +94,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Initialize services
 db = Database()
 
-QUEUE_PROVIDER = os.getenv("ALEX_QUEUE_PROVIDER", "sqs").lower()
-SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL', '')
 PUBSUB_TOPIC = os.getenv("PUBSUB_TOPIC", "")
-if QUEUE_PROVIDER == "sqs":
-    import boto3
-
-    sqs_client = boto3.client(
-        'sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1')
-    )
-elif QUEUE_PROVIDER == "pubsub":
-    sqs_client = None
-else:
-    raise ValueError("ALEX_QUEUE_PROVIDER must be sqs or pubsub")
 
 # Clerk authentication setup (exactly like saas reference)
 clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"))
@@ -517,51 +504,30 @@ async def trigger_analysis(request: AnalyzeRequest, clerk_user_id: str = Depends
         # Get the created job
         job = db.jobs.find_by_id(job_id)
 
-        if QUEUE_PROVIDER == "pubsub":
-            if not PUBSUB_TOPIC:
-                db.jobs.update_status(
-                    str(job_id), "failed", "PUBSUB_TOPIC is not configured"
-                )
-                raise HTTPException(
-                    status_code=503, detail="Analysis queue is not configured"
-                )
-            try:
-                from gcp_queue import publish_analysis_job
-
-                publish_analysis_job(PUBSUB_TOPIC, str(job_id))
-                logger.info("Published analysis job to Pub/Sub: %s", job_id)
-            except Exception as error:
-                db.jobs.update_status(
-                    str(job_id), "failed", "Could not publish analysis job"
-                )
-                logger.error(
-                    "Could not publish analysis job %s to Pub/Sub (%s)",
-                    job_id,
-                    type(error).__name__,
-                )
-                raise HTTPException(
-                    status_code=503, detail="Could not queue analysis"
-                ) from error
-        elif SQS_QUEUE_URL:
-            message = {
-                'job_id': str(job_id),
-                'clerk_user_id': clerk_user_id,
-                'analysis_type': request.analysis_type,
-                'options': request.options
-            }
-
-            sqs_client.send_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps(message)
-            )
-            logger.info(f"Sent analysis job to SQS: {job_id}")
-        else:
+        if not PUBSUB_TOPIC:
             db.jobs.update_status(
-                str(job_id), "failed", "SQS_QUEUE_URL is not configured"
+                str(job_id), "failed", "PUBSUB_TOPIC is not configured"
             )
             raise HTTPException(
                 status_code=503, detail="Analysis queue is not configured"
             )
+        try:
+            from gcp_queue import publish_analysis_job
+
+            publish_analysis_job(PUBSUB_TOPIC, str(job_id))
+            logger.info("Published analysis job to Pub/Sub: %s", job_id)
+        except Exception as error:
+            db.jobs.update_status(
+                str(job_id), "failed", "Could not publish analysis job"
+            )
+            logger.error(
+                "Could not publish analysis job %s to Pub/Sub (%s)",
+                job_id,
+                type(error).__name__,
+            )
+            raise HTTPException(
+                status_code=503, detail="Could not queue analysis"
+            ) from error
 
         return AnalyzeResponse(
             job_id=str(job_id),
@@ -801,8 +767,6 @@ async def populate_test_data(clerk_user_id: str = Depends(get_current_user_id)):
         logger.error(f"Error populating test data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Lambda handler
-handler = Mangum(app)
 
 if __name__ == "__main__":
     import uvicorn

@@ -6,7 +6,6 @@ import os
 import logging
 from typing import Dict, Any
 
-from agents.extensions.models.litellm_model import LitellmModel
 
 from templates import CHARTER_INSTRUCTIONS, create_charter_task
 
@@ -140,15 +139,9 @@ def analyze_portfolio(portfolio_data: Dict[str, Any]) -> str:
 def create_agent(job_id: str, portfolio_data: Dict[str, Any], db=None):
     """Create the charter agent without tools - will output JSON directly."""
     
-    if os.getenv("ALEX_LLM_PROVIDER", "bedrock").lower() == "groq":
-        from gcp_agents.groq_model import create_groq_model
+    from gcp_agents.groq_model import create_groq_model
 
-        model = create_groq_model()
-    else:
-        model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-        bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-        os.environ["AWS_REGION_NAME"] = bedrock_region
-        model = LitellmModel(model=f"bedrock/{model_id}")
+    model = create_groq_model()
 
     logger.info("Charter: Creating agent for job %s", job_id)
     logger.info(f"Charter: Job ID: {job_id}")

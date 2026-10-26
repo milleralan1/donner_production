@@ -373,27 +373,15 @@ def insert_instrument(instrument_data):
     try:
         client.execute(
             sql,
-            [
-                {"name": "symbol", "value": {"stringValue": validated["symbol"]}},
-                {"name": "name", "value": {"stringValue": validated["name"]}},
-                {"name": "instrument_type", "value": {"stringValue": validated["instrument_type"]}},
-                {
-                    "name": "current_price",
-                    "value": {"stringValue": str(validated.get("current_price", 0))},
-                },
-                {
-                    "name": "allocation_regions",
-                    "value": {"stringValue": json.dumps(validated["allocation_regions"])},
-                },
-                {
-                    "name": "allocation_sectors",
-                    "value": {"stringValue": json.dumps(validated["allocation_sectors"])},
-                },
-                {
-                    "name": "allocation_asset_class",
-                    "value": {"stringValue": json.dumps(validated["allocation_asset_class"])},
-                },
-            ],
+            {
+                "symbol": validated["symbol"],
+                "name": validated["name"],
+                "instrument_type": validated["instrument_type"],
+                "current_price": validated.get("current_price", 0),
+                "allocation_regions": json.dumps(validated["allocation_regions"]),
+                "allocation_sectors": json.dumps(validated["allocation_sectors"]),
+                "allocation_asset_class": json.dumps(validated["allocation_asset_class"]),
+            },
         )
         return True
     except Exception as e:
@@ -457,19 +445,18 @@ def main():
     print("\n🔍 Verifying data...")
     verification_ok = False
     try:
-        response = client.execute("SELECT COUNT(*) as count FROM instruments")
-        count = response["records"][0][0]["longValue"]
+        count = client.query_one("SELECT COUNT(*) as count FROM instruments")["count"]
         print(f"  Database now contains {count} instruments")
 
         # Show a sample
-        response = client.execute(
+        rows = client.query(
             "SELECT symbol, name FROM instruments ORDER BY symbol LIMIT 5"
         )
 
         print("\n  Sample instruments:")
-        for record in response["records"]:
-            symbol = record[0]["stringValue"]
-            name = record[1]["stringValue"]
+        for record in rows:
+            symbol = record["symbol"]
+            name = record["name"]
             print(f"    - {symbol}: {name}")
         verification_ok = True
 

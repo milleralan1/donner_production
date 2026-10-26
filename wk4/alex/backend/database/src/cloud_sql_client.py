@@ -1,21 +1,17 @@
-"""Cloud SQL PostgreSQL client compatible with the existing database models."""
+"""Cloud SQL PostgreSQL client used by the database models."""
 
 import json
 import os
 import re
 import threading
 import uuid
-from datetime import date, datetime
-from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
-
-from .client import DataAPIClient
 
 _NAMED_PARAMETER = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
 
 
-class CloudSQLClient(DataAPIClient):
-    """Use the Cloud SQL Python Connector while preserving the Data API interface."""
+class CloudSQLClient:
+    """Execute parameterized PostgreSQL queries through the Cloud SQL Connector."""
 
     # noinspection PyMissingConstructor
     def __init__(self, database: str = None, connector=None):
@@ -64,64 +60,29 @@ class CloudSQLClient(DataAPIClient):
             ip_type=self._ip_type,
         )
 
-    @staticmethod
-    def _parameter_map(parameters) -> Dict[str, Any]:
-        if not parameters:
-            return {}
-        if isinstance(parameters, dict):
-            return parameters
-
-        values = {}
-        for parameter in parameters:
-            name = parameter["name"]
-            value = parameter.get("value", {})
-            if value.get("isNull"):
-                values[name] = None
-            elif value:
-                values[name] = next(iter(value.values()))
-            else:
-                values[name] = None
-        return values
-
     @classmethod
     def _prepare_statement(
         cls, sql: str, parameters
     ) -> Tuple[str, Tuple[Any, ...]]:
-        values = cls._parameter_map(parameters)
+        values = parameters or {}
+        if not isinstance(values, dict):
+            raise TypeError("SQL parameters must be provided as a mapping")
         args = []
 
         def replace_parameter(match):
             name = match.group(1)
             if name not in values:
                 raise ValueError(f"Missing SQL parameter: {name}")
-            args.append(values[name])
+            value = values[name]
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            args.append(value)
             return "%s"
 
         statement = _NAMED_PARAMETER.sub(replace_parameter, sql)
         return statement, tuple(args)
 
-    @staticmethod
-    def _to_data_api_field(value: Any) -> Dict[str, Any]:
-        if value is None:
-            return {"isNull": True}
-        if isinstance(value, bool):
-            return {"booleanValue": value}
-        if isinstance(value, int):
-            return {"longValue": value}
-        if isinstance(value, float):
-            return {"doubleValue": value}
-        if isinstance(value, bytes):
-            return {"blobValue": value}
-        if isinstance(value, (datetime, date)):
-            return {"stringValue": value.isoformat()}
-        if isinstance(value, Decimal):
-            return {"stringValue": str(value)}
-        if isinstance(value, (dict, list)):
-            return {"stringValue": json.dumps(value)}
-        return {"stringValue": str(value)}
-
-    def execute(self, sql: str, parameters: List[Dict] = None) -> Dict:
-        """Execute parameterized SQL and return the current Data API response shape."""
+    def _run(self, sql: str, parameters=None):
         statement, args = self._prepare_statement(sql, parameters)
         active_transaction = getattr(self._transaction, "active", None)
         connection = active_transaction[1] if active_transaction else self._connect()
@@ -130,23 +91,12 @@ class CloudSQLClient(DataAPIClient):
 
         try:
             cursor = connection.cursor()
-            cursor.execute(statement, args if args else None)
+            cursor.execute(statement, args)
             columns = [description[0] for description in (cursor.description or [])]
-            records = (
-                [
-                    [self._to_data_api_field(value) for value in row]
-                    for row in cursor.fetchall()
-                ]
-                if columns
-                else []
-            )
+            rows = [dict(zip(columns, row)) for row in cursor.fetchall()] if columns else []
             if owns_connection:
                 connection.commit()
-            return {
-                "records": records,
-                "columnMetadata": [{"name": name} for name in columns],
-                "numberOfRecordsUpdated": max(cursor.rowcount or 0, 0),
-            }
+            return rows, max(cursor.rowcount or 0, 0)
         except Exception:
             if owns_connection:
                 connection.rollback()
@@ -158,6 +108,59 @@ class CloudSQLClient(DataAPIClient):
             finally:
                 if owns_connection:
                     connection.close()
+
+    def query(self, sql: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict]:
+        """Execute a query and return rows as dictionaries."""
+        rows, _ = self._run(sql, parameters)
+        return rows
+
+    def query_one(
+        self, sql: str, parameters: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict]:
+        """Return the first row of a query, if present."""
+        rows = self.query(sql, parameters)
+        return rows[0] if rows else None
+
+    def execute(self, sql: str, parameters: Optional[Dict[str, Any]] = None) -> int:
+        """Execute a statement and return its affected-row count."""
+        _, rowcount = self._run(sql, parameters)
+        return rowcount
+
+    def insert(
+        self, table: str, data: Dict[str, Any], returning: str = "id"
+    ) -> Any:
+        columns = list(data)
+        names = ", ".join(columns)
+        placeholders = ", ".join(f":{column}" for column in columns)
+        row = self.query_one(
+            f"INSERT INTO {table} ({names}) VALUES ({placeholders}) "
+            f"RETURNING {returning}",
+            data,
+        )
+        if row is None:
+            raise RuntimeError(f"Insert into {table} returned no row")
+        return row[returning]
+
+    def update(
+        self,
+        table: str,
+        data: Dict[str, Any],
+        where: str,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        if not data:
+            return 0
+        assignments = ", ".join(f"{column} = :{column}" for column in data)
+        values = {**data, **(parameters or {})}
+        return self.execute(f"UPDATE {table} SET {assignments} WHERE {where}", values)
+
+    def delete(
+        self,
+        table: str,
+        where: str,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        return self.execute(f"DELETE FROM {table} WHERE {where}", parameters)
 
     def begin_transaction(self) -> str:
         if getattr(self._transaction, "active", None):

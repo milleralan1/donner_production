@@ -12,7 +12,7 @@ from gcp_server import create_app
 class GCPAgentServerTests(unittest.TestCase):
     def setUp(self):
         self.handler = Mock(
-            return_value={"statusCode": 200, "body": json.dumps({"success": True})}
+            return_value={"success": True}
         )
         self.client = TestClient(create_app(lambda: self.handler))
         self.environment = patch.dict(os.environ, {"ALEX_AGENT_ROLE": "planner"})
@@ -33,7 +33,7 @@ class GCPAgentServerTests(unittest.TestCase):
         response = self.client.post("/invoke", json={"job_id": "job-123"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"success": True})
-        self.handler.assert_called_once_with({"job_id": "job-123"}, None)
+        self.handler.assert_called_once_with({"job_id": "job-123"})
 
     def test_invoke_rejects_missing_job_id(self):
         response = self.client.post("/invoke", json={})
@@ -46,9 +46,7 @@ class GCPAgentServerTests(unittest.TestCase):
                 "/invoke", json={"instruments": [{"symbol": "VTI"}]}
             )
         self.assertEqual(response.status_code, 200)
-        self.handler.assert_called_once_with(
-            {"instruments": [{"symbol": "VTI"}]}, None
-        )
+        self.handler.assert_called_once_with({"instruments": [{"symbol": "VTI"}]})
 
     def test_pubsub_decodes_job_and_acknowledges_only_success(self):
         message = base64.b64encode(json.dumps({"job_id": "job-456"}).encode()).decode()
@@ -57,7 +55,7 @@ class GCPAgentServerTests(unittest.TestCase):
             json={"message": {"data": message, "messageId": "msg-1"}},
         )
         self.assertEqual(response.status_code, 204)
-        self.handler.assert_called_once_with({"job_id": "job-456"}, None)
+        self.handler.assert_called_once_with({"job_id": "job-456"})
 
     def test_pubsub_rejects_invalid_base64(self):
         response = self.client.post("/pubsub", json={"message": {"data": "%%%!"}})
@@ -71,7 +69,7 @@ class GCPAgentServerTests(unittest.TestCase):
         self.handler.assert_not_called()
 
     def test_failed_agent_response_is_not_acknowledged_as_success(self):
-        self.handler.return_value = {"statusCode": 500, "body": "{}"}
+        self.handler.side_effect = RuntimeError("agent failed")
         message = base64.b64encode(json.dumps({"job_id": "job-456"}).encode()).decode()
         response = self.client.post(
             "/pubsub", json={"message": {"data": message}}

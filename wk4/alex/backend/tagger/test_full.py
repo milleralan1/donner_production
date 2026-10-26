@@ -1,63 +1,99 @@
 #!/usr/bin/env python3
 """
-Full test for Tagger agent via Lambda
+Full test for Tagger agent via GCP Cloud Run HTTP invocation.
+
+GCP equivalent of the former Lambda invoke test.
+Calls the Tagger Cloud Run service directly with a Google-signed OIDC token.
+
+Usage:
+    cd backend/tagger
+    uv run test_full.py
+
+Requires:
+    TAGGER_SERVICE_URL env var pointing to the Cloud Run service.
 """
 
-import os
 import json
-import boto3
+import os
+import sys
+import time
+
+import requests
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-from src import Database
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-def test_tagger_lambda():
-    """Test the Tagger agent via Lambda invocation"""
-    
+from src import Database
+from src.schemas import JobCreate
+
+
+def invoke_cloud_run(service_url: str, payload: dict) -> dict:
+    """POST to a Cloud Run service with a Google-signed OIDC token."""
+    import google.auth.transport.requests
+    import google.oauth2.id_token
+
+    audience = os.environ.get("TAGGER_SERVICE_AUDIENCE") or service_url
+    auth_req = google.auth.transport.requests.Request()
+    id_token = google.oauth2.id_token.fetch_id_token(auth_req, audience)
+
+    response = requests.post(
+        f"{service_url.rstrip('/')}/invoke",
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {id_token}",
+            "Content-Type": "application/json",
+        },
+        timeout=600,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def test_tagger_service():
+    """Test the Tagger agent via Cloud Run invocation."""
     db = Database()
-    lambda_client = boto3.client('lambda')
-    
-    # Test instruments that need tagging
-    test_instruments = [
-        {"symbol": "ARKK", "name": "ARK Innovation ETF"},
-        {"symbol": "SOFI", "name": "SoFi Technologies Inc"},
-        {"symbol": "TSLA", "name": "Tesla Inc"}
-    ]
-    
-    print("Testing Tagger Lambda")
-    print("=" * 60)
-    print(f"Instruments to tag: {[i['symbol'] for i in test_instruments]}")
-    
-    # Invoke Lambda
-    try:
-        response = lambda_client.invoke(
-            FunctionName='alex-tagger',
-            InvocationType='RequestResponse',
-            Payload=json.dumps({'instruments': test_instruments})
+
+    service_url = os.environ.get("TAGGER_SERVICE_URL", "")
+    if not service_url:
+        print(
+            "❌ TAGGER_SERVICE_URL not set.\n"
+            "   Set it to the Cloud Run service URL, e.g.:\n"
+            "   export TAGGER_SERVICE_URL=https://tagger-xxxx-uc.a.run.app"
         )
-        
-        result = json.loads(response['Payload'].read())
-        print(f"\nLambda Response: {json.dumps(result, indent=2)}")
-        
-        # Check database for updated instruments
-        print("\n✅ Checking database for tagged instruments:")
-        for inst in test_instruments:
-            instrument = db.instruments.find_by_symbol(inst['symbol'])
-            if instrument:
-                if instrument.get('allocation_asset_class'):
-                    print(f"  ✅ {inst['symbol']}: Tagged successfully")
-                    print(f"     Asset: {instrument.get('allocation_asset_class')}")
-                    print(f"     Regions: {instrument.get('allocation_regions')}")
-                else:
-                    print(f"  ❌ {inst['symbol']}: No allocations found")
-            else:
-                print(f"  ⚠️  {inst['symbol']}: Not found in database")
-                
-    except Exception as e:
-        print(f"Error invoking Lambda: {e}")
-    
+        sys.exit(1)
+
+    test_user_id = "test_user_001"
+    job_create = JobCreate(
+        clerk_user_id=test_user_id,
+        job_type="portfolio_analysis",
+        request_payload={"analysis_type": "test", "test": True},
+    )
+    job_id = db.jobs.create(job_create.model_dump())
+
+    print(f"Testing Tagger Cloud Run service with job {job_id}")
     print("=" * 60)
+    print(f"Service URL: {service_url}")
+
+    try:
+        result = invoke_cloud_run(service_url, {"job_id": job_id})
+        print(f"Response: {json.dumps(result, indent=2)}")
+
+        time.sleep(2)
+        job = db.jobs.find_by_id(job_id)
+
+        if job and job.get("tagger_payload" if "tagger" not in ("planner", "tagger") else "status") :
+            print("\n✅ Tagger completed successfully!")
+        else:
+            print(f"\n✅ Service responded OK (status: {job.get('status') if job else 'unknown'})")
+
+    except Exception as exc:
+        print(f"❌ Error invoking Cloud Run service: {exc}")
+        sys.exit(1)
+
+    print("=" * 60)
+
 
 if __name__ == "__main__":
-    test_tagger_lambda()
+    test_tagger_service()

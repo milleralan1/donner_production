@@ -64,7 +64,6 @@ class CloudSQLClientTests(unittest.TestCase):
                 "CLOUD_SQL_CONNECTION_NAME": "project:region:instance",
                 "DB_USER": "alex",
                 "DB_PASSWORD": "test-password",
-                "DATABASE_BACKEND": "cloud_sql",
             },
         )
         self.environment.start()
@@ -73,10 +72,7 @@ class CloudSQLClientTests(unittest.TestCase):
     def test_prepare_statement_reuses_named_parameters_and_keeps_casts(self):
         statement, parameters = CloudSQLClient._prepare_statement(
             "SELECT :id::uuid WHERE parent_id = :id::uuid AND name = :name",
-            [
-                {"name": "id", "value": {"stringValue": "123"}},
-                {"name": "name", "value": {"stringValue": "Alex"}},
-            ],
+            {"id": "123", "name": "Alex"},
         )
 
         self.assertEqual(
@@ -85,37 +81,54 @@ class CloudSQLClientTests(unittest.TestCase):
         )
         self.assertEqual(parameters, ("123", "123", "Alex"))
 
-    def test_execute_returns_data_api_compatible_rows(self):
+    def test_prepare_statement_serializes_json_parameters(self):
+        statement, parameters = CloudSQLClient._prepare_statement(
+            "INSERT INTO jobs (request_payload) VALUES (:payload::jsonb)",
+            {"payload": {"symbols": ["VTI", "BND"]}},
+        )
+
+        self.assertEqual(
+            statement, "INSERT INTO jobs (request_payload) VALUES (%s::jsonb)"
+        )
+        self.assertEqual(parameters, ('{"symbols": ["VTI", "BND"]}',))
+
+    def test_query_returns_postgres_rows(self):
         connector = FakeConnector()
         client = CloudSQLClient(connector=connector)
 
-        result = client.execute(
+        result = client.query(
             "SELECT :id::uuid",
-            [{"name": "id", "value": {"stringValue": "abc"}}],
+            {"id": "abc"},
         )
 
         self.assertEqual(connector.connection.cursor_instance.executed,
                          ("SELECT %s::uuid", ("abc",)))
-        self.assertEqual(
-            result["records"],
-            [[
-                {"stringValue": "abc"},
-                {"stringValue": '{"equity": 70}'},
-                {"stringValue": "12.50"},
-            ]],
-        )
-        self.assertEqual(result["columnMetadata"], [
-            {"name": "id"}, {"name": "payload"}, {"name": "balance"}
-        ])
+        self.assertEqual(result, [{
+            "id": "abc",
+            "payload": {"equity": 70},
+            "balance": Decimal("12.50"),
+        }])
         self.assertEqual(connector.connection.commits, 1)
         self.assertTrue(connector.connection.closed)
 
-    def test_database_selects_cloud_sql_from_environment(self):
-        database = Database()
-        try:
-            self.assertIsInstance(database.client, CloudSQLClient)
-        finally:
-            database.client.close()
+    def test_query_without_parameters_passes_empty_tuple(self):
+        connector = FakeConnector()
+        client = CloudSQLClient(connector=connector)
+
+        client.query("SELECT 1")
+
+        self.assertEqual(
+            connector.connection.cursor_instance.executed,
+            ("SELECT 1", ()),
+        )
+
+    def test_database_uses_cloud_sql_client(self):
+        connector = FakeConnector()
+        with patch("google.cloud.sql.connector.Connector", return_value=connector):
+            database = Database()
+
+        self.assertIsInstance(database.client, CloudSQLClient)
+        database.client.close()
 
     def test_transaction_reuses_connection_until_commit(self):
         connector = FakeConnector()

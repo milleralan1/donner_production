@@ -11,7 +11,7 @@ load_dotenv(override=True)
 
 from src import Database
 from src.schemas import JobCreate
-from lambda_handler import lambda_handler
+from handler import handle_event
 
 
 def test_charter():
@@ -60,15 +60,15 @@ def test_charter():
 
     import sys
 
-    print("About to call lambda_handler...", flush=True)
+    print("About to call the Charter handler...", flush=True)
     sys.stdout.flush()
-    result = lambda_handler(test_event, None)
-    print("lambda_handler returned", flush=True)
+    result = handle_event(test_event)
+    print("Charter handler returned", flush=True)
 
-    print(f"Status Code: {result['statusCode']}")
+    print(f"Result: {result}")
 
-    if result["statusCode"] == 200:
-        body = json.loads(result["body"])
+    if result.get("success"):
+        body = result
         print(f"Success: {body.get('success', False)}")
         print(f"Message: {body.get('message', 'N/A')}")
 
@@ -94,7 +94,7 @@ def test_charter():
         else:
             print("\n❌ No charts found in database")
     else:
-        print(f"Error: {result['body']}")
+        print(f"Error: {result.get('error', 'No result')}")
 
     # Clean up - delete the test job
     db.jobs.delete(job_id)

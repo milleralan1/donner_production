@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# Mock lambdas for testing
-os.environ['MOCK_LAMBDAS'] = 'true'
+# Mock remote agent services for testing
+os.environ['MOCK_AGENT_SERVICES'] = 'true'
 
 from src import Database
 from src.schemas import JobCreate
@@ -64,18 +64,18 @@ def test_planner():
     print(f"Job ID: {job_id}")
     print("=" * 60)
     
-    from lambda_handler import lambda_handler
+    from handler import handle_event
     
-    result = lambda_handler(test_event, None)
+    result = handle_event(test_event)
     
-    print(f"Status Code: {result['statusCode']}")
+    print(f"Result: {result}")
     
-    if result['statusCode'] == 200:
-        body = json.loads(result['body'])
+    if result.get('success'):
+        body = result
         print(f"Success: {body.get('success', False)}")
         print(f"Message: {body.get('message', 'N/A')}")
     else:
-        print(f"Error: {result['body']}")
+        print(f"Error: {result.get('error', 'No result')}")
     
     print("=" * 60)
 

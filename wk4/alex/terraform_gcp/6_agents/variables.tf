@@ -77,8 +77,8 @@ variable "database_password_secret_id" {
   default     = "alex-cloud-sql-password"
 }
 
-variable "polygon_api_key_secret_id" {
-  description = "Optional Secret Manager secret ID containing the Polygon API key."
+variable "massive_api_key_secret_id" {
+  description = "Optional Secret Manager secret ID containing the Massive API key."
   type        = string
   default     = null
   nullable    = true

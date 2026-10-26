@@ -1,5 +1,5 @@
 """
-Market data functions using polygon.io for fetching real-time prices.
+Market data functions using Massive for fetching real-time prices.
 """
 
 import logging
@@ -11,7 +11,7 @@ logger = logging.getLogger()
 
 def update_instrument_prices(job_id: str, db) -> None:
     """
-    Fetch current prices for all instruments in the user's portfolio using polygon.io.
+    Fetch current prices for all instruments in the user's portfolio using Massive.
     Updates the instruments table with current prices.
 
     Args:
@@ -56,7 +56,7 @@ def update_instrument_prices(job_id: str, db) -> None:
 
 def update_prices_for_symbols(symbols: Set[str], db) -> None:
     """
-    Fetch and update prices for a set of symbols using polygon.io.
+    Fetch and update prices for a set of symbols using Massive.
 
     Args:
         symbols: Set of ticker symbols to update
@@ -69,7 +69,7 @@ def update_prices_for_symbols(symbols: Set[str], db) -> None:
     symbols_list = list(symbols)
     price_map = {}
 
-    # Fetch price for each symbol using polygon.io
+    # Fetch price for each symbol using Massive
     for symbol in symbols_list:
         try:
             price = get_share_price(symbol)

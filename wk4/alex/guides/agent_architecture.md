@@ -54,7 +54,7 @@ graph TB
 - Determines regional allocation (North America, Europe, Asia, etc.)
 - Identifies sector exposure (technology, healthcare, financials, etc.)
 - Uses Structured Outputs for consistent data format
-- Future: Will integrate with Polygon API for real-time market data
+- Future: Will integrate with Massive for real-time market data
 
 ### Researcher (Independent Agent)
 **Role**: Autonomously gather market intelligence and investment insights
@@ -248,7 +248,7 @@ Researcher (Autonomous) → Accumulating Knowledge → Better Analysis Over Time
 - **Risk Analyzer**: Deep dive into portfolio risk metrics
 
 ### Planned Capabilities
-- Real-time market data integration (Polygon API)
+- Real-time market data integration (Massive API)
 - Options strategy analysis
 - International market coverage
 - ESG (Environmental, Social, Governance) scoring

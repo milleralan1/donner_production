@@ -1,5 +1,5 @@
 """
-InstrumentTagger Lambda Handler
+InstrumentTagger Handler
 Classifies financial instruments and updates the database.
 """
 
@@ -93,9 +93,9 @@ async def process_instruments(instruments: List[Dict[str, str]]) -> Dict[str, An
         ]
     }
 
-def lambda_handler(event, context):
+def handle_event(event):
     """
-    Lambda handler for instrument tagging.
+    Process an instrument-tagging request.
 
     Expected event format:
     {
@@ -112,22 +112,11 @@ def lambda_handler(event, context):
             instruments = event.get('instruments', [])
 
             if not instruments:
-                return {
-                    'statusCode': 400,
-                    'body': json.dumps({'error': 'No instruments provided'})
-                }
+                raise ValueError("instruments are required")
 
             # Process all instruments in a single async context
-            result = asyncio.run(process_instruments(instruments))
-
-            return {
-                'statusCode': 200,
-                'body': json.dumps(result)
-            }
+            return asyncio.run(process_instruments(instruments))
 
         except Exception as e:
-            logger.error(f"Lambda handler error: {e}")
-            return {
-                'statusCode': 500,
-                'body': json.dumps({'error': str(e)})
-            }
+            logger.error(f"Tagger handler error: {e}")
+            raise

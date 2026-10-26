@@ -5,9 +5,9 @@ import os
 from datetime import UTC, datetime
 from typing import Optional
 
-from agents import Agent, Runner, trace
-from agents.extensions.models.litellm_model import LitellmModel
+from agents import Agent, OpenAIChatCompletionsModel, Runner, trace
 from fastapi import FastAPI, HTTPException
+from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from context import DEFAULT_RESEARCH_PROMPT
@@ -57,7 +57,7 @@ def _get_runtime_config():
         )
     if not model_name.startswith("groq/"):
         raise ResearchConfigurationError(
-            "RESEARCHER_MODEL must use the groq/ LiteLLM provider prefix"
+            "RESEARCHER_MODEL must use the groq/ model prefix"
         )
     return model_name
 
@@ -71,7 +71,13 @@ async def run_research_agent(topic: Optional[str] = None) -> str:
         if topic
         else DEFAULT_RESEARCH_PROMPT
     )
-    model = LitellmModel(model=model_name)
+    model = OpenAIChatCompletionsModel(
+        model=model_name.removeprefix("groq/"),
+        openai_client=AsyncOpenAI(
+            api_key=os.environ["GROQ_API_KEY"],
+            base_url="https://api.groq.com/openai/v1",
+        ),
+    )
 
     with trace("GCP Researcher"):
         async with create_playwright_mcp_server(

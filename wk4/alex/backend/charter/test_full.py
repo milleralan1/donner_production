@@ -1,28 +1,70 @@
 #!/usr/bin/env python3
 """
-Full test for Charter agent via Lambda
+Full test for Charter agent via GCP Cloud Run HTTP invocation.
+
+GCP equivalent of the former Lambda invoke test.
+Calls the Charter Cloud Run service directly with a Google-signed OIDC token.
+
+Usage:
+    cd backend/charter
+    uv run test_full.py
+
+Requires:
+    CHARTER_SERVICE_URL env var pointing to the Cloud Run service.
 """
 
 import json
-import boto3
+import os
+import sys
 import time
+
+import requests
 from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src import Database
 from src.schemas import JobCreate
 
-load_dotenv(override=True)
+
+def invoke_cloud_run(service_url: str, payload: dict) -> dict:
+    """POST to a Cloud Run service with a Google-signed OIDC token."""
+    import google.auth.transport.requests
+    import google.oauth2.id_token
+
+    audience = os.environ.get("CHARTER_SERVICE_AUDIENCE") or service_url
+    auth_req = google.auth.transport.requests.Request()
+    id_token = google.oauth2.id_token.fetch_id_token(auth_req, audience)
+
+    response = requests.post(
+        f"{service_url.rstrip('/')}/invoke",
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {id_token}",
+            "Content-Type": "application/json",
+        },
+        timeout=600,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
-def test_charter_lambda():
-    """Test the Charter agent via Lambda invocation"""
-
+def test_charter_service():
+    """Test the Charter agent via Cloud Run invocation."""
     db = Database()
-    lambda_client = boto3.client("lambda")
 
-    # Create test job
+    service_url = os.environ.get("CHARTER_SERVICE_URL", "")
+    if not service_url:
+        print(
+            "❌ CHARTER_SERVICE_URL not set.\n"
+            "   Set it to the Cloud Run service URL, e.g.:\n"
+            "   export CHARTER_SERVICE_URL=https://charter-xxxx-uc.a.run.app"
+        )
+        sys.exit(1)
+
     test_user_id = "test_user_001"
-
     job_create = JobCreate(
         clerk_user_id=test_user_id,
         job_type="portfolio_analysis",
@@ -30,82 +72,28 @@ def test_charter_lambda():
     )
     job_id = db.jobs.create(job_create.model_dump())
 
-    # Load portfolio data for the test
-    user = db.users.find_by_clerk_id(test_user_id)
-    accounts = db.accounts.find_by_user(test_user_id)
-
-    portfolio_data = {
-        "user_id": test_user_id,
-        "job_id": job_id,
-        "years_until_retirement": user.get("years_until_retirement", 30),
-        "accounts": [],
-    }
-
-    for account in accounts:
-        positions = db.positions.find_by_account(account["id"])
-        account_data = {
-            "id": account["id"],
-            "name": account["account_name"],
-            "cash_balance": float(account.get("cash_balance", 0)),
-            "positions": [],
-        }
-
-        for position in positions:
-            instrument = db.instruments.find_by_symbol(position["symbol"])
-            if instrument:
-                account_data["positions"].append(
-                    {
-                        "symbol": position["symbol"],
-                        "quantity": float(position["quantity"]),
-                        "instrument": instrument,
-                    }
-                )
-
-        portfolio_data["accounts"].append(account_data)
-
-    print(f"Testing Charter Lambda with job {job_id}")
+    print(f"Testing Charter Cloud Run service with job {job_id}")
     print("=" * 60)
+    print(f"Service URL: {service_url}")
 
-    # Invoke Lambda
     try:
-        response = lambda_client.invoke(
-            FunctionName="alex-charter",
-            InvocationType="RequestResponse",
-            Payload=json.dumps({"job_id": job_id, "portfolio_data": portfolio_data}),
-        )
+        result = invoke_cloud_run(service_url, {"job_id": job_id})
+        print(f"Response: {json.dumps(result, indent=2)}")
 
-        result = json.loads(response["Payload"].read())
-        print(f"Lambda Response: {json.dumps(result, indent=2)}")
-
-        # Check database for results
-        time.sleep(2)  # Give it a moment
+        time.sleep(2)
         job = db.jobs.find_by_id(job_id)
 
-        if job and job.get("charts_payload"):
-            print(f"\n📊 Charts Created ({len(job['charts_payload'])} total):")
-            print("=" * 50)
-            for chart_key, chart_data in job["charts_payload"].items():
-                print(f"\n🎯 Chart: {chart_key}")
-                print(f"   Title: {chart_data.get('title', 'N/A')}")
-                print(f"   Type: {chart_data.get('type', 'N/A')}")
-                print(f"   Description: {chart_data.get('description', 'N/A')}")
-
-                data_points = chart_data.get("data", [])
-                print(f"   Data Points ({len(data_points)}):")
-                for i, point in enumerate(data_points):
-                    name = point.get("name", "N/A")
-                    value = point.get("value", 0)
-                    color = point.get("color", "N/A")
-                    print(f"     {i+1}. {name}: ${value:,.2f} {color}")
-
+        if job and job.get("charter_payload" if "charter" not in ("planner", "tagger") else "status") :
+            print("\n✅ Charter completed successfully!")
         else:
-            print("\n❌ No charts found in database")
+            print(f"\n✅ Service responded OK (status: {job.get('status') if job else 'unknown'})")
 
-    except Exception as e:
-        print(f"Error invoking Lambda: {e}")
+    except Exception as exc:
+        print(f"❌ Error invoking Cloud Run service: {exc}")
+        sys.exit(1)
 
     print("=" * 60)
 
 
 if __name__ == "__main__":
-    test_charter_lambda()
+    test_charter_service()

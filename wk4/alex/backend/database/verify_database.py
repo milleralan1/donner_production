@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv(override=True)
 
-database = os.environ.get("DB_NAME", os.environ.get("AURORA_DATABASE", "alex"))
+database = os.environ.get("DB_NAME", "alex")
 client = Database().client
 verification_errors = []
 
@@ -35,7 +35,7 @@ def execute_query(sql, description):
     print("-" * 50)
     
     try:
-        return client.execute(sql)
+        return client.query(sql)
     except Exception as e:
         print(f"❌ Error: {e}")
         verification_errors.append(str(e))
@@ -45,7 +45,7 @@ def main():
     verification_errors.clear()
     print("🔍 DATABASE VERIFICATION REPORT")
     print("=" * 70)
-    print(f"📍 Backend: {os.environ.get('DATABASE_BACKEND', 'aws_data_api')}")
+    print("📍 Backend: Cloud SQL")
     print(f"📦 Database: {database}")
     print("=" * 70)
     
@@ -62,11 +62,11 @@ def main():
         "📊 ALL TABLES IN DATABASE"
     )
     
-    if response and response['records']:
-        print(f"✅ Found {len(response['records'])} tables:\n")
-        for record in response['records']:
-            table_name = record[0]['stringValue']
-            size = record[1]['stringValue']
+    if response:
+        print(f"✅ Found {len(response)} tables:\n")
+        for record in response:
+            table_name = record["table_name"]
+            size = record["size"]
             print(f"   • {table_name:<20} Size: {size}")
     
     # 2. Count records in each table
@@ -87,11 +87,11 @@ def main():
         "📈 RECORD COUNTS PER TABLE"
     )
     
-    if response and response['records']:
+    if response:
         print("\nTable record counts:\n")
-        for record in response['records']:
-            table_name = record[0]['stringValue']
-            count = record[1]['longValue']
+        for record in response:
+            table_name = record["table_name"]
+            count = record["count"]
             status = "✅" if (table_name == 'instruments' and count > 0) else "📭"
             print(f"   {status} {table_name:<20} {count:,} records")
     
@@ -107,14 +107,14 @@ def main():
         "🎯 SAMPLE INSTRUMENTS (First 10)"
     )
     
-    if response and response['records']:
+    if response:
         print("\nSymbol | Name | Type | Asset Class Allocation")
         print("-" * 70)
-        for record in response['records']:
-            symbol = record[0]['stringValue']
-            name = record[1]['stringValue'][:35]
-            inst_type = record[2]['stringValue']
-            asset_class = record[3]['stringValue']
+        for record in response:
+            symbol = record["symbol"]
+            name = record["name"][:35]
+            inst_type = record["instrument_type"]
+            asset_class = record["asset_class"]
             print(f"{symbol:<6} | {name:<35} | {inst_type:<10} | {asset_class}")
     
     # 4. Verify allocation sums
@@ -130,16 +130,15 @@ def main():
         "✅ ALLOCATION VALIDATION (Sample ETFs)"
     )
     
-    if response and response['records']:
+    if response:
         print("\nVerifying allocations sum to 100%:\n")
         print("Symbol | Regions | Sectors | Assets | Status")
         print("-" * 50)
-        for record in response['records']:
-            symbol = record[0]['stringValue']
-            # Handle numeric values from SUM()
-            regions = float(record[1].get('stringValue', '0')) if record[1] and 'stringValue' in record[1] else 0
-            sectors = float(record[2].get('stringValue', '0')) if record[2] and 'stringValue' in record[2] else 0
-            assets = float(record[3].get('stringValue', '0')) if record[3] and 'stringValue' in record[3] else 0
+        for record in response:
+            symbol = record["symbol"]
+            regions = float(record["regions_sum"] or 0)
+            sectors = float(record["sectors_sum"] or 0)
+            assets = float(record["asset_sum"] or 0)
             
             all_valid = regions == 100 and sectors == 100 and assets == 100
             status = "✅ Valid" if all_valid else "❌ Invalid"
@@ -162,16 +161,16 @@ def main():
         "📊 ASSET CLASS DISTRIBUTION"
     )
     
-    if response and response['records']:
-        record = response['records'][0]
+    if response:
+        record = response[0]
         print("\nInstrument breakdown by asset class:\n")
-        print(f"   • Pure Equity ETFs:      {record[0]['longValue']:>3}")
-        print(f"   • Pure Bond Funds:       {record[1]['longValue']:>3}")
-        print(f"   • Real Estate ETFs:      {record[2]['longValue']:>3}")
-        print(f"   • Commodity ETFs:        {record[3]['longValue']:>3}")
-        print(f"   • Mixed Allocation ETFs: {record[4]['longValue']:>3}")
+        print(f"   • Pure Equity ETFs:      {record['pure_equity']:>3}")
+        print(f"   • Pure Bond Funds:       {record['pure_bonds']:>3}")
+        print(f"   • Real Estate ETFs:      {record['real_estate']:>3}")
+        print(f"   • Commodity ETFs:        {record['commodities']:>3}")
+        print(f"   • Mixed Allocation ETFs: {record['mixed']:>3}")
         print(f"   " + "-" * 25)
-        print(f"   • TOTAL INSTRUMENTS:     {record[5]['longValue']:>3}")
+        print(f"   • TOTAL INSTRUMENTS:     {record['total']:>3}")
     
     # 6. Check indexes exist
     response = execute_query(
@@ -185,8 +184,8 @@ def main():
         "🔍 DATABASE INDEXES"
     )
     
-    if response and response['records']:
-        print(f"\n✅ Found {len(response['records'])} custom indexes")
+    if response:
+        print(f"\n✅ Found {len(response)} custom indexes")
     
     # 7. Check triggers exist
     response = execute_query(
@@ -199,8 +198,8 @@ def main():
         "⚡ DATABASE TRIGGERS"
     )
     
-    if response and response['records']:
-        print(f"\n✅ Found {len(response['records'])} update triggers for timestamp management")
+    if response:
+        print(f"\n✅ Found {len(response)} update triggers for timestamp management")
     
     if verification_errors:
         print(f"\n❌ Verification failed with {len(verification_errors)} database error(s)")

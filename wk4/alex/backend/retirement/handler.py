@@ -1,5 +1,5 @@
 """
-Retirement Specialist Agent Lambda Handler
+Retirement Specialist Agent Handler
 """
 
 import os
@@ -11,7 +11,7 @@ from datetime import datetime
 
 from agents import Agent, Runner, trace
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from litellm.exceptions import RateLimitError
+from openai import RateLimitError
 
 
 class AgentTemporaryError(Exception):
@@ -120,9 +120,9 @@ async def run_retirement_agent(job_id: str, portfolio_data: Dict[str, Any]) -> D
             'final_output': result.final_output
         }
 
-def lambda_handler(event, context):
+def handle_event(event):
     """
-    Lambda handler expecting job_id in event.
+    Process a request containing job_id.
 
     Expected event:
     {
@@ -133,7 +133,7 @@ def lambda_handler(event, context):
     # Wrap entire handler with observability context
     with observe() as observability:
         try:
-            logger.info(f"Retirement Lambda invoked with event: {json.dumps(event)[:500]}")
+            logger.info(f"Retirement invoked with event: {json.dumps(event)[:500]}")
 
             # Parse event
             if isinstance(event, str):
@@ -141,20 +141,13 @@ def lambda_handler(event, context):
 
             job_id = event.get('job_id')
             if not job_id:
-                return {
-                    'statusCode': 400,
-                    'body': json.dumps({'error': 'job_id is required'})
-                }
+                raise ValueError("job_id is required")
 
             portfolio_data = event.get('portfolio_data')
             if not portfolio_data:
                 # Try to load from database
                 logger.info(f"Retirement Loading portfolio data for job {job_id}")
                 try:
-                    import sys
-                    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-                    from src import Database
-
                     db = Database()
                     job = db.jobs.find_by_id(job_id)
                     if job:
@@ -198,17 +191,10 @@ def lambda_handler(event, context):
 
                         logger.info(f"Retirement: Loaded {len(portfolio_data['accounts'])} accounts with positions")
                     else:
-                        logger.error(f"Retirement: Job {job_id} not found")
-                        return {
-                            'statusCode': 404,
-                            'body': json.dumps({'error': f'Job {job_id} not found'})
-                        }
+                        raise ValueError(f"Job {job_id} not found")
                 except Exception as e:
                     logger.error(f"Could not load portfolio from database: {e}")
-                    return {
-                        'statusCode': 400,
-                        'body': json.dumps({'error': 'No portfolio data provided'})
-                    }
+                    raise RuntimeError("Could not load portfolio from database") from e
 
             logger.info(f"Retirement: Processing job {job_id}")
 
@@ -217,20 +203,11 @@ def lambda_handler(event, context):
 
             logger.info(f"Retirement completed for job {job_id}")
 
-            return {
-                'statusCode': 200,
-                'body': json.dumps(result)
-            }
+            return result
 
         except Exception as e:
             logger.error(f"Error in retirement: {e}", exc_info=True)
-            return {
-                'statusCode': 500,
-                'body': json.dumps({
-                    'success': False,
-                    'error': str(e)
-                })
-            }
+            raise
 
 # For local testing
 if __name__ == "__main__":
@@ -267,5 +244,5 @@ if __name__ == "__main__":
         }
     }
     
-    result = lambda_handler(test_event, None)
+    result = handle_event(test_event)
     print(json.dumps(result, indent=2))

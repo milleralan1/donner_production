@@ -9,10 +9,9 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from agents import Agent, Runner, trace
-from agents.extensions.models.litellm_model import LitellmModel
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from litellm.exceptions import RateLimitError
+from openai import RateLimitError
 
 from src.schemas import InstrumentCreate
 from templates import TAGGER_INSTRUCTIONS, CLASSIFICATION_PROMPT
@@ -24,8 +23,6 @@ load_dotenv(override=True)
 logger = logging.getLogger(__name__)
 
 # Get configuration
-BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-west-2")
 
 
 class AllocationBreakdown(BaseModel):
@@ -171,14 +168,9 @@ async def classify_instrument(
         Complete classification with allocations
     """
     try:
-        if os.getenv("ALEX_LLM_PROVIDER", "bedrock").lower() == "groq":
-            from gcp_agents.groq_model import create_groq_model
+        from gcp_agents.groq_model import create_groq_model
 
-            model = create_groq_model()
-        else:
-            bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-            os.environ["AWS_REGION_NAME"] = bedrock_region
-            model = LitellmModel(model=f"bedrock/{BEDROCK_MODEL_ID}")
+        model = create_groq_model()
 
         # Create the classification task
         task = CLASSIFICATION_PROMPT.format(

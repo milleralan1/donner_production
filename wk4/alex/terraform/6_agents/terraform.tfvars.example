@@ -27,10 +27,9 @@ bedrock_region = "us-west-2"
 # Default: alex-embedding-endpoint
 sagemaker_endpoint = "alex-embedding-endpoint"
 
-# Polygon.io API configuration for real-time market prices
-# Sign up for free at https://polygon.io (no credit card required)
-polygon_api_key = "your_polygon_api_key_here"
-polygon_plan    = "free"
+# Massive API configuration for real-time market prices
+massive_api_key = "your_massive_api_key_here"
+massive_plan    = "free"
 
 # LangFuse observability configuration (optional)
 # Leave commented out until we use LangFuse - we start LangFuse in Part 8 / Day 4

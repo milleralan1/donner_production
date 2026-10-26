@@ -2,11 +2,9 @@
 Database models and query builders
 """
 
-import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime, date
 from decimal import Decimal
-from .client import DataAPIClient
 from .schemas import (
     InstrumentCreate, UserCreate, AccountCreate, 
     PositionCreate, JobCreate, JobUpdate
@@ -18,7 +16,7 @@ class BaseModel:
     
     table_name = None
     
-    def __init__(self, db: DataAPIClient):
+    def __init__(self, db):
         self.db = db
         if not self.table_name:
             raise ValueError("table_name must be defined")
@@ -26,15 +24,12 @@ class BaseModel:
     def find_by_id(self, id: Any) -> Optional[Dict]:
         """Find a record by ID"""
         sql = f"SELECT * FROM {self.table_name} WHERE id = :id::uuid"
-        return self.db.query_one(sql, [{'name': 'id', 'value': {'stringValue': str(id)}}])
+        return self.db.query_one(sql, {'id': str(id)})
     
     def find_all(self, limit: int = 100, offset: int = 0) -> List[Dict]:
         """Find all records with pagination"""
         sql = f"SELECT * FROM {self.table_name} LIMIT :limit OFFSET :offset"
-        params = [
-            {'name': 'limit', 'value': {'longValue': limit}},
-            {'name': 'offset', 'value': {'longValue': offset}}
-        ]
+        params = {'limit': limit, 'offset': offset}
         return self.db.query(sql, params)
     
     def create(self, data: Dict, returning: str = 'id') -> str:
@@ -57,7 +52,7 @@ class Users(BaseModel):
     def find_by_clerk_id(self, clerk_user_id: str) -> Optional[Dict]:
         """Find user by Clerk ID"""
         sql = f"SELECT * FROM {self.table_name} WHERE clerk_user_id = :clerk_id"
-        params = [{'name': 'clerk_id', 'value': {'stringValue': clerk_user_id}}]
+        params = {'clerk_id': clerk_user_id}
         return self.db.query_one(sql, params)
     
     def create_user(self, clerk_user_id: str, display_name: str = None, 
@@ -82,12 +77,12 @@ class Instruments(BaseModel):
     def find_all(self, limit: int = None, offset: int = 0) -> List[Dict]:
         """Find all instruments - no limit by default for autocomplete"""
         sql = f"SELECT * FROM {self.table_name} ORDER BY symbol"
-        return self.db.query(sql, [])
+        return self.db.query(sql)
 
     def find_by_symbol(self, symbol: str) -> Optional[Dict]:
         """Find instrument by symbol"""
         sql = f"SELECT * FROM {self.table_name} WHERE symbol = :symbol"
-        params = [{'name': 'symbol', 'value': {'stringValue': symbol}}]
+        params = {'symbol': symbol}
         return self.db.query_one(sql, params)
     
     def create_instrument(self, instrument: InstrumentCreate) -> str:
@@ -110,7 +105,7 @@ class Instruments(BaseModel):
     def find_by_type(self, instrument_type: str) -> List[Dict]:
         """Find all instruments of a specific type"""
         sql = f"SELECT * FROM {self.table_name} WHERE instrument_type = :type ORDER BY symbol"
-        params = [{'name': 'type', 'value': {'stringValue': instrument_type}}]
+        params = {'type': instrument_type}
         return self.db.query(sql, params)
     
     def search(self, query: str) -> List[Dict]:
@@ -122,7 +117,7 @@ class Instruments(BaseModel):
             ORDER BY symbol
             LIMIT 20
         """
-        params = [{'name': 'query', 'value': {'stringValue': f'%{query}%'}}]
+        params = {'query': f'%{query}%'}
         return self.db.query(sql, params)
 
 
@@ -137,7 +132,7 @@ class Accounts(BaseModel):
             WHERE clerk_user_id = :user_id 
             ORDER BY created_at DESC
         """
-        params = [{'name': 'user_id', 'value': {'stringValue': clerk_user_id}}]
+        params = {'user_id': clerk_user_id}
         return self.db.query(sql, params)
     
     def create_account(self, clerk_user_id: str, account_name: str,
@@ -167,7 +162,7 @@ class Positions(BaseModel):
             WHERE p.account_id = :account_id::uuid
             ORDER BY p.symbol
         """
-        params = [{'name': 'account_id', 'value': {'stringValue': account_id}}]
+        params = {'account_id': account_id}
         return self.db.query(sql, params)
     
     def get_portfolio_value(self, account_id: str) -> Dict:
@@ -181,9 +176,7 @@ class Positions(BaseModel):
             JOIN instruments i ON p.symbol = i.symbol
             WHERE p.account_id = :account_id::uuid
         """
-        params = [
-            {'name': 'account_id', 'value': {'stringValue': account_id}}
-        ]
+        params = {'account_id': account_id}
         result = self.db.query_one(sql, params)
         if result:
             return {
@@ -206,16 +199,14 @@ class Positions(BaseModel):
                 updated_at = NOW()
             RETURNING id
         """
-        params = [
-            {'name': 'account_id', 'value': {'stringValue': account_id}},
-            {'name': 'symbol', 'value': {'stringValue': symbol}},
-            {'name': 'quantity', 'value': {'stringValue': str(quantity)}},
-            {'name': 'as_of_date', 'value': {'stringValue': date.today().isoformat()}}
-        ]
-        response = self.db.execute(sql, params)
-        if response.get('records'):
-            return response['records'][0][0].get('stringValue')
-        return None
+        params = {
+            'account_id': account_id,
+            'symbol': symbol,
+            'quantity': quantity,
+            'as_of_date': date.today(),
+        }
+        row = self.db.query_one(sql, params)
+        return row['id'] if row else None
 
 
 class Jobs(BaseModel):
@@ -263,8 +254,8 @@ class Jobs(BaseModel):
               )
             RETURNING id
         """
-        params = [{'name': 'id', 'value': {'stringValue': job_id}}]
-        return bool(self.db.execute(sql, params).get('records'))
+        params = {'id': job_id}
+        return self.db.query_one(sql, params) is not None
     
     def update_report(self, job_id: str, report_payload: Dict) -> int:
         """Update job with Reporter agent's analysis"""
@@ -296,11 +287,7 @@ class Jobs(BaseModel):
                 ORDER BY created_at DESC
                 LIMIT :limit
             """
-            params = [
-                {'name': 'user_id', 'value': {'stringValue': clerk_user_id}},
-                {'name': 'status', 'value': {'stringValue': status}},
-                {'name': 'limit', 'value': {'longValue': limit}}
-            ]
+            params = {'user_id': clerk_user_id, 'status': status, 'limit': limit}
         else:
             sql = f"""
                 SELECT * FROM {self.table_name}
@@ -308,10 +295,7 @@ class Jobs(BaseModel):
                 ORDER BY created_at DESC
                 LIMIT :limit
             """
-            params = [
-                {'name': 'user_id', 'value': {'stringValue': clerk_user_id}},
-                {'name': 'limit', 'value': {'longValue': limit}}
-            ]
+            params = {'user_id': clerk_user_id, 'limit': limit}
         
         return self.db.query(sql, params)
 
@@ -319,20 +303,11 @@ class Jobs(BaseModel):
 class Database:
     """Main database interface providing access to all models"""
     
-    def __init__(self, cluster_arn: str = None, secret_arn: str = None,
-                 database: str = None, region: str = None, backend: str = None):
+    def __init__(self, database: str = None):
         """Initialize database with all model classes"""
-        backend = (backend or os.environ.get("DATABASE_BACKEND", "aws_data_api")).lower()
-        if backend in {"aws", "aws_data_api"}:
-            self.client = DataAPIClient(cluster_arn, secret_arn, database, region)
-        elif backend in {"gcp", "cloud_sql"}:
-            from .cloud_sql_client import CloudSQLClient
+        from .cloud_sql_client import CloudSQLClient
 
-            self.client = CloudSQLClient(database=database)
-        else:
-            raise ValueError(
-                "DATABASE_BACKEND must be aws_data_api or cloud_sql"
-            )
+        self.client = CloudSQLClient(database=database)
         
         # Initialize all models
         self.users = Users(self.client)
@@ -341,10 +316,14 @@ class Database:
         self.positions = Positions(self.client)
         self.jobs = Jobs(self.client)
     
-    def execute_raw(self, sql: str, parameters: List[Dict] = None) -> Dict:
+    def execute_raw(
+        self, sql: str, parameters: Optional[Dict[str, Any]] = None
+    ) -> int:
         """Execute raw SQL for complex queries"""
         return self.client.execute(sql, parameters)
     
-    def query_raw(self, sql: str, parameters: List[Dict] = None) -> List[Dict]:
+    def query_raw(
+        self, sql: str, parameters: Optional[Dict[str, Any]] = None
+    ) -> List[Dict]:
         """Execute raw SELECT query"""
         return self.client.query(sql, parameters)

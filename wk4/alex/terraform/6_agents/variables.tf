@@ -34,13 +34,14 @@ variable "sagemaker_endpoint" {
   default     = "alex-embedding-endpoint"
 }
 
-variable "polygon_api_key" {
-  description = "Polygon.io API key for market data"
+variable "massive_api_key" {
+  description = "Massive API key for market data"
   type        = string
+  sensitive   = true
 }
 
-variable "polygon_plan" {
-  description = "Polygon.io plan type (free or paid)"
+variable "massive_plan" {
+  description = "Massive plan type (free or paid)"
   type        = string
   default     = "free"
 }

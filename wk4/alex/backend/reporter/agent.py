@@ -9,7 +9,6 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from agents import function_tool, RunContextWrapper
-from agents.extensions.models.litellm_model import LitellmModel
 
 logger = logging.getLogger()
 
@@ -108,7 +107,7 @@ def format_portfolio_for_analysis(portfolio_data: Dict[str, Any], user_data: Dic
     return "\n".join(lines)
 
 
-# update_report tool removed - report is now saved directly in lambda_handler
+# The report is saved directly by the Reporter handler.
 
 
 @function_tool
@@ -116,7 +115,7 @@ async def get_market_insights(
     wrapper: RunContextWrapper[ReporterContext], symbols: List[str]
 ) -> str:
     """
-    Retrieve market insights from S3 Vectors knowledge base.
+    Retrieve market insights from the GCP ingest/search service (Vertex AI Vector Search).
 
     Args:
         wrapper: Context wrapper with job_id and database
@@ -125,121 +124,60 @@ async def get_market_insights(
     Returns:
         Relevant market context and insights
     """
-    if os.getenv("ALEX_LLM_PROVIDER", "bedrock").lower() == "vertex_ai":
-        from google.auth.transport.requests import AuthorizedSession, Request
-        from google.oauth2.id_token import fetch_id_token_credentials
+    service_url = os.environ.get("ALEX_INGESTION_URL", "").rstrip("/")
+    if not service_url:
+        logger.info("Reporter: ALEX_INGESTION_URL not configured, skipping market insights")
+        return "Market insights unavailable - proceeding with standard analysis." 
+    from google.auth.transport.requests import AuthorizedSession, Request
+    from google.oauth2.id_token import fetch_id_token_credentials
 
-        job = (
-            wrapper.context.db.jobs.find_by_id(wrapper.context.job_id)
-            if wrapper.context.db
-            else None
-        )
-        if not job or not job.get("clerk_user_id"):
-            raise RuntimeError("Cannot determine the authenticated research tenant")
-        service_url = os.environ.get("ALEX_INGESTION_URL", "").rstrip("/")
-        if not service_url.startswith("https://"):
-            raise ValueError("ALEX_INGESTION_URL must be an HTTPS URL")
-        audience = os.environ.get("ALEX_INGESTION_AUDIENCE") or service_url
-        credentials = fetch_id_token_credentials(audience, Request())
-        query = f"market analysis {' '.join(symbols[:5])}" if symbols else "market outlook"
-        response = AuthorizedSession(credentials).post(
-            f"{service_url}/search",
-            json={
-                "query": query,
-                "tenant_id": job["clerk_user_id"],
-                "limit": 3,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        matches = response.json().get("results", [])
-        insights = [
-            match.get("text", "").strip()
-            for match in matches
-            if isinstance(match, dict) and match.get("text")
-        ]
-        return (
-            "Market Insights:\n" + "\n".join(insights)
-            if insights
-            else "No tenant-specific research documents were found."
-        )
-
-    try:
-        import boto3
-
-        # Get account ID
-        sts = boto3.client("sts")
-        account_id = sts.get_caller_identity()["Account"]
-        bucket = f"alex-vectors-{account_id}"
-
-        # Get embeddings
-        sagemaker_region = os.getenv("DEFAULT_AWS_REGION", "us-east-1")
-        sagemaker = boto3.client("sagemaker-runtime", region_name=sagemaker_region)
-        endpoint_name = os.getenv("SAGEMAKER_ENDPOINT", "alex-embedding-endpoint")
-        query = f"market analysis {' '.join(symbols[:5])}" if symbols else "market outlook"
-
-        response = sagemaker.invoke_endpoint(
-            EndpointName=endpoint_name,
-            ContentType="application/json",
-            Body=json.dumps({"inputs": query}),
-        )
-
-        result = json.loads(response["Body"].read().decode())
-        # Extract embedding (handle nested arrays)
-        if isinstance(result, list) and result:
-            embedding = result[0][0] if isinstance(result[0], list) else result[0]
-        else:
-            embedding = result
-
-        # Search vectors
-        s3v = boto3.client("s3vectors", region_name=sagemaker_region)
-        response = s3v.query_vectors(
-            vectorBucketName=bucket,
-            indexName="financial-research",
-            queryVector={"float32": embedding},
-            topK=3,
-            returnMetadata=True,
-        )
-
-        # Format insights
-        insights = []
-        for vector in response.get("vectors", []):
-            metadata = vector.get("metadata", {})
-            text = metadata.get("text", "")[:200]
-            if text:
-                company = metadata.get("company_name", "")
-                prefix = f"{company}: " if company else "- "
-                insights.append(f"{prefix}{text}...")
-
-        if insights:
-            return "Market Insights:\n" + "\n".join(insights)
-        else:
-            return "Market insights unavailable - proceeding with standard analysis."
-
-    except Exception as e:
-        logger.warning(f"Reporter: Could not retrieve market insights: {e}")
-        return "Market insights unavailable - proceeding with standard analysis."
-
+    job = (
+        wrapper.context.db.jobs.find_by_id(wrapper.context.job_id)
+        if wrapper.context.db
+        else None
+    )
+    if not job or not job.get("clerk_user_id"):
+        raise RuntimeError("Cannot determine the authenticated research tenant")
+    if not service_url.startswith("https://"):
+        raise ValueError("ALEX_INGESTION_URL must be an HTTPS URL")
+    audience = os.environ.get("ALEX_INGESTION_AUDIENCE") or service_url
+    credentials = fetch_id_token_credentials(audience, Request())
+    query = f"market analysis {' '.join(symbols[:5])}" if symbols else "market outlook"
+    response = AuthorizedSession(credentials).post(
+        f"{service_url}/search",
+        json={
+            "query": query,
+            "tenant_id": job["clerk_user_id"],
+            "limit": 3,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    matches = response.json().get("results", [])
+    insights = [
+        match.get("text", "").strip()
+        for match in matches
+        if isinstance(match, dict) and match.get("text")
+    ]
+    return (
+        "Market Insights:\n" + "\n".join(insights)
+        if insights
+        else "No tenant-specific research documents were found."
+    )
 
 def create_agent(job_id: str, portfolio_data: Dict[str, Any], user_data: Dict[str, Any], db=None):
     """Create the reporter agent with tools and context."""
 
-    if os.getenv("ALEX_LLM_PROVIDER", "bedrock").lower() == "groq":
-        from gcp_agents.groq_model import create_groq_model
+    from gcp_agents.groq_model import create_groq_model
 
-        model = create_groq_model()
-    else:
-        model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-        bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-        os.environ["AWS_REGION_NAME"] = bedrock_region
-        model = LitellmModel(model=f"bedrock/{model_id}")
+    model = create_groq_model()
 
     # Create context
     context = ReporterContext(
         job_id=job_id, portfolio_data=portfolio_data, user_data=user_data, db=db
     )
 
-    # Tools - only get_market_insights now, report saved in lambda_handler
+    # The handler saves the report; the only tool is get_market_insights.
     tools = [get_market_insights]
 
     # Format portfolio for analysis

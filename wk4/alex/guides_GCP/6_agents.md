@@ -25,7 +25,7 @@ Pub/Sub delivery is at-least-once. The Planner atomically claims pending or fail
 - `gcloud`, Docker, Terraform 1.5+, and `uv` installed; Docker Desktop running for image builds.
 - The `alex-api` and `alex-agents` service accounts created in Guide 5. The `alex-agents` identity must be listed in the Guide 5 stack's `runtime_service_accounts`, so it has Cloud SQL Client and database-password Secret Accessor roles.
 - A Groq model available to your account that supports the tools used by the Agents SDK, plus its API key stored in Secret Manager.
-- A Polygon API key stored in Secret Manager if Planner price updates are desired. Price lookup is optional and does not block analysis.
+- A Massive API key stored in Secret Manager if Planner price updates are desired. Price lookup is optional and does not block analysis.
 
 The agents use LiteLLM's `groq/` provider. The example uses `groq/llama-3.3-70b-versatile`; verify that it remains available and supports tool calling for your account. Groq's free-tier quotas and rate limits apply and can change. The separate embedding/vector-search services continue to use Vertex AI.
 
@@ -72,7 +72,7 @@ Edit `terraform.tfvars` with:
 - The Cloud SQL connection name and database secret ID from `terraform_gcp/5_database` outputs.
 - The private ingestion Cloud Run service name, region, URL, and audience from Guide 3. The audience is usually the service URL.
 - The Groq model name and five Artifact Registry image URLs. Keep the image URLs under the repository created by this stack.
-- Optionally, the Secret Manager ID holding the Polygon API key.
+- Optionally, the Secret Manager ID holding the Massive API key.
 
 Never put database passwords or API key values in this file. It is gitignored; Terraform state and local state backups still contain sensitive resource data and must be protected.
 
