@@ -47,8 +47,8 @@ def main():
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "not-set")
     print(f"GCP Project:   {project}")
     print(f"Pub/Sub Topic: {PUBSUB_TOPIC}")
-    print(f"LLM Provider:  {os.getenv('ALEX_LLM_PROVIDER', 'groq')}")
-    print(f"Groq Model:    {os.getenv('GROQ_MODEL', 'not-set')}")
+    print(f"LLM Provider:  {os.getenv('ALEX_LLM_PROVIDER', 'huggingface')}")
+    print(f"Hugging Face Model: {os.getenv('HF_MODEL', 'not-set')}")
     print()
 
     test_user_id = "test_user_001"

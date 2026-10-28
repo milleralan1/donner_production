@@ -3,6 +3,7 @@ InstrumentTagger Agent - Classifies financial instruments using OpenAI Agents SD
 """
 
 import os
+from pathlib import Path
 from typing import List
 import logging
 from decimal import Decimal
@@ -16,8 +17,8 @@ from openai import RateLimitError
 from src.schemas import InstrumentCreate
 from templates import TAGGER_INSTRUCTIONS, CLASSIFICATION_PROMPT
 
-# Load environment variables (dotenv automatically searches up the tree)
-load_dotenv(override=True)
+# Load the project-level local configuration consistently in local runs.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -168,9 +169,9 @@ async def classify_instrument(
         Complete classification with allocations
     """
     try:
-        from gcp_agents.groq_model import create_groq_model
+        from gcp_agents.huggingface_model import create_llm_model
 
-        model = create_groq_model()
+        model = create_llm_model()
 
         # Create the classification task
         task = CLASSIFICATION_PROMPT.format(

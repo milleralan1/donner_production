@@ -1,4 +1,6 @@
-# Alex Agent Architecture
+> **RETIRED — AWS deployment is no longer supported.** Use the [supported Google Cloud agent architecture](../guides_GCP/agent_architecture.md).
+
+# RETIRED: Alex Agent Architecture
 
 This document illustrates how the AI agents in the Alex platform collaborate to provide comprehensive financial planning and portfolio analysis.
 

@@ -19,11 +19,26 @@ moved {
   to   = google_secret_manager_secret_iam_member.massive_api_key
 }
 
+moved {
+  from = google_secret_manager_secret_iam_member.groq_api_key
+  to   = google_secret_manager_secret_iam_member.huggingface_token
+}
+
+moved {
+  from = google_secret_manager_secret_iam_member.huggingface_token
+  to   = google_secret_manager_secret_iam_member.llm_api_key
+}
+
 locals {
-  agent_roles = toset(["planner", "tagger", "reporter", "charter", "retirement"])
+  agent_roles   = toset(["planner", "tagger", "reporter", "charter", "retirement"])
+  llm_defaults  = jsondecode(file("${path.module}/../../backend/gcp_agents/gcp_agents/llm_config.json"))
+  llm_provider  = coalesce(var.llm_provider, local.llm_defaults.default_provider)
+  llm_settings  = local.llm_defaults.providers[local.llm_provider]
+  llm_secret_id = local.llm_provider == "huggingface" ? var.huggingface_token_secret_id : var.nscale_token_secret_id
+  llm_model     = coalesce(var.llm_model, local.llm_defaults.models.agents[local.llm_provider])
   common_env = {
-    ALEX_LLM_PROVIDER         = "groq"
-    GROQ_MODEL                = var.groq_model
+    ALEX_LLM_PROVIDER         = local.llm_provider
+    ALEX_LLM_MODEL            = local.llm_model
     DATABASE_BACKEND          = "cloud_sql"
     CLOUD_SQL_CONNECTION_NAME = var.database_connection_name
     CLOUD_SQL_IP_TYPE         = "PUBLIC"
@@ -74,9 +89,9 @@ resource "google_artifact_registry_repository" "agents" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_secret_manager_secret_iam_member" "groq_api_key" {
+resource "google_secret_manager_secret_iam_member" "llm_api_key" {
   project   = var.project_id
-  secret_id = var.groq_api_key_secret_id
+  secret_id = local.llm_secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${data.google_service_account.agents.email}"
 
@@ -153,10 +168,10 @@ resource "google_cloud_run_v2_service" "agent" {
       }
 
       env {
-        name = "GROQ_API_KEY"
+        name = local.llm_settings.api_key_env
         value_source {
           secret_key_ref {
-            secret  = var.groq_api_key_secret_id
+            secret  = local.llm_secret_id
             version = "latest"
           }
         }
@@ -223,7 +238,7 @@ resource "google_cloud_run_v2_service" "agent" {
 
   depends_on = [
     google_project_service.required,
-    google_secret_manager_secret_iam_member.groq_api_key,
+    google_secret_manager_secret_iam_member.llm_api_key,
   ]
 }
 

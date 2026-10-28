@@ -7,7 +7,7 @@ import os
 import logging
 from contextlib import contextmanager
 
-# Use root logger for Lambda compatibility
+# Use root logger for Cloud Run process-wide logging.
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -99,7 +99,7 @@ def observe():
                 langfuse_client.shutdown()
 
                 # Add a 10 second delay to ensure network requests complete
-                # This is a workaround for Lambda's immediate termination
+                # Allow the trace exporter to finish before the request exits.
                 import time
 
                 logger.info("🔍 Observability: Waiting 10 seconds for flush to complete...")

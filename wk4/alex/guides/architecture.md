@@ -1,4 +1,6 @@
-# Alex Architecture Overview (S3 Vectors Version)
+> **RETIRED — AWS deployment is no longer supported.** Use the [supported Google Cloud architecture](../guides_GCP/architecture.md).
+
+# RETIRED: Alex Architecture Overview (S3 Vectors Version)
 
 ## System Architecture
 

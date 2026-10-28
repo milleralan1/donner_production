@@ -1,4 +1,6 @@
-# Building Alex: Part 6 - AI Agent Orchestra
+> **RETIRED — AWS deployment is no longer supported.** Do not follow this guide or use its AWS commands. Start with the [supported Google Cloud guides](../guides_GCP/README.md).
+
+# RETIRED: Building Alex: Part 6 - AI Agent Orchestra
 
 Welcome to the most exciting part of Alex! In this guide, you'll deploy a sophisticated multi-agent AI system where specialized agents collaborate to provide comprehensive financial analysis. This is where Alex truly comes to life as an intelligent financial advisor.
 

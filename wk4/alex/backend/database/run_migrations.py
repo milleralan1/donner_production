@@ -149,7 +149,8 @@ if error_count == 0:
     print("\n✅ All migrations completed successfully!")
     print("\n📝 Next steps:")
     print("1. Load seed data: uv run seed_data.py")
-    print("2. Test database operations: uv run test_db.py")
+    print("2. Verify the database: uv run verify_database.py")
+    print("3. Run database unit tests: uv run test_cloud_sql_client.py")
 else:
     print(f"\n⚠️  Some statements failed. Check errors above.")
 

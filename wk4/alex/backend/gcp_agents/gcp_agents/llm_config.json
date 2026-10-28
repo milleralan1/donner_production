@@ -1,0 +1,23 @@
+{
+  "default_provider": "nscale",
+  "providers": {
+    "huggingface": {
+      "base_url": "https://router.huggingface.co/v1",
+      "api_key_env": "HF_TOKEN"
+    },
+    "nscale": {
+      "base_url": "https://inference.api.nscale.com/v1",
+      "api_key_env": "NSCALE_API_KEY"
+    }
+  },
+  "models": {
+    "agents": {
+      "huggingface": "openai/gpt-oss-120b",
+      "nscale": "openai/gpt-oss-120b"
+    },
+    "researcher": {
+      "huggingface": "openai/gpt-oss-120b",
+      "nscale": "openai/gpt-oss-120b"
+    }
+  }
+}

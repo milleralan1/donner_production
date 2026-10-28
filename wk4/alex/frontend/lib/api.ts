@@ -2,13 +2,7 @@
  * API client for backend communication
  */
 import { showToast } from '../components/Toast';
-
-// API base URL - in production this will be the API Gateway URL
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:8000'
-    : '');
+import { API_URL } from './config';
 
 // Type definitions
 export interface User {
@@ -57,7 +51,7 @@ export async function apiRequest<T = unknown>(
   token: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${API_URL}${endpoint}`;
 
   const response = await fetch(url, {
     ...options,

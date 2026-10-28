@@ -237,9 +237,9 @@ def create_agent(
 ):
     """Create the retirement agent with tools and context."""
 
-    from gcp_agents.groq_model import create_groq_model
+    from gcp_agents.huggingface_model import create_llm_model
 
-    model = create_groq_model()
+    model = create_llm_model()
 
     # Extract user preferences
     years_until_retirement = user_preferences.get("years_until_retirement", 30)

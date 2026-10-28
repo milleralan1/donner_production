@@ -1,52 +1,62 @@
 # Building Alex: Part 4 - Researcher Agent on Cloud Run
 
-Deploy the Researcher as a containerized Cloud Run service. It performs market research using the OpenAI Agents SDK and Groq through LiteLLM, then sends its findings through the GCP ingestion path from [Guide 3](3_ingest.md). Vertex AI remains in use for embeddings and vector search, not text generation.
-
-## Important migration note
-
-The AWS `server.py`, `tools.py`, Dockerfile, and deployment script remain AWS-specific. The GCP implementation is separate in `backend/researcher/gcp_server.py` and `gcp_tools.py`, with a GCP-only `Dockerfile.gcp`; the AWS deployment path is unchanged.
+Deploy the Researcher as a containerized Cloud Run service. It performs market research using the OpenAI Agents SDK and Hugging Face Inference Providers' OpenAI-compatible API, then sends its findings through the GCP ingestion path from [Guide 3](3_ingest.md). Vertex AI remains in use for embeddings and vector search, not text generation.
 
 ## Prerequisites
 
 - Completed Guides 1-3
 - Docker running
-- A Groq account, API key, and a model that supports tool calling
-- The Groq API key stored in Secret Manager
+- A Hugging Face account and a fine-grained token with Inference Providers permission
+- The Hugging Face token stored in Secret Manager
 - The private Cloud Run ingestion service from Guide 3 deployed and accepting authorized calls
 
 ## Step 1: Configure the model and runtime identity
 
-Choose a Groq model that supports tool calling and is available to your account. Check current model availability, free-tier quotas, and rate limits in the Groq console; free access is limited and can change. LiteLLM uses the `groq/` model prefix.
+The Researcher uses the shared LLM factory at `backend/gcp_agents/gcp_agents/huggingface_model.py`, also used by the five agent services. Provider endpoints, API-key environment names, and default model IDs live in `llm_config.json`; Terraform reads the same file for the five-agent stack. Hugging Face is the default. Choose a provider/model combination that supports the agent's tool-calling workflow and verify current availability, permissions, quotas, and pricing.
 
 Configure the GCP-specific service with:
 
 ```text
-GROQ_API_KEY=provided-from-Secret-Manager-at-runtime
-RESEARCHER_MODEL=groq/llama-3.3-70b-versatile
+ALEX_LLM_PROVIDER=huggingface
+ALEX_LLM_MODEL=openai/gpt-oss-120b
+HF_TOKEN=provided-from-Secret-Manager-at-runtime
 ALEX_INGESTION_URL=https://YOUR_INGESTION_SERVICE.run.app
 RESEARCH_TENANT_ID=public_research
 ```
+
+To use Nscale directly instead, set `ALEX_LLM_PROVIDER=nscale`, set `ALEX_LLM_MODEL` to a model ID in the Nscale catalog, and inject the Nscale service token as `NSCALE_API_KEY` from Secret Manager. The model ID is provider-specific; do not assume Hugging Face model IDs are valid on Nscale.
 
 If the secret does not already exist, create it and add a version without putting the key in shell history:
 
 ```bash
 # Skip the create command if this secret already exists.
-gcloud secrets create alex-groq-api-key --replication-policy=automatic \
+gcloud secrets create alex-huggingface-token --replication-policy=automatic \
   --project YOUR_PROJECT_ID
-read -s GROQ_API_KEY
-printf '%s' "$GROQ_API_KEY" | gcloud secrets versions add alex-groq-api-key \
+read -s HF_TOKEN
+printf '%s' "$HF_TOKEN" | gcloud secrets versions add alex-huggingface-token \
   --data-file=- --project YOUR_PROJECT_ID
-unset GROQ_API_KEY
+unset HF_TOKEN
 ```
 
-Grant the Researcher runtime identity access to this secret and `roles/run.invoker` on the ingestion service only. ADC is still required for authenticated calls to the private ingestion service; the ingestor separately uses Vertex AI for embeddings.
+For Nscale, create and populate its separate secret without placing the token in shell history:
+
+```bash
+gcloud secrets create alex-nscale-token --replication-policy=automatic \
+  --project YOUR_PROJECT_ID
+read -s NSCALE_API_KEY
+printf '%s' "$NSCALE_API_KEY" | gcloud secrets versions add alex-nscale-token \
+  --data-file=- --project YOUR_PROJECT_ID
+unset NSCALE_API_KEY
+```
+
+Grant the Researcher runtime identity access to the selected provider secret and `roles/run.invoker` on the ingestion service only. ADC is still required for authenticated calls to the private ingestion service; the ingestor separately uses Vertex AI for embeddings.
 
 ```bash
 gcloud iam service-accounts create alex-researcher \
   --project YOUR_PROJECT_ID \
   --display-name "Alex GCP Researcher runtime"
 
-gcloud secrets add-iam-policy-binding alex-groq-api-key \
+gcloud secrets add-iam-policy-binding alex-huggingface-token \
   --project YOUR_PROJECT_ID \
   --member="serviceAccount:alex-researcher@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
@@ -65,20 +75,23 @@ Review the Playwright/browser setup in the Docker image. Headless browsers need 
 
 ## Step 2: Build and publish the container
 
-Install the GCP dependency extra and test the GCP-specific entrypoint:
+Install dependencies and test the GCP-specific entrypoint:
 
 ```bash
 cd backend/researcher
-uv sync --extra gcp
+uv sync
 uv run test_gcp_researcher.py
 ```
 
-Create an Artifact Registry Docker repository in the deployment region, then build and push the separate GCP image:
+If the repository does not already exist, create it. Then authenticate Docker and build and push the image:
 
 ```bash
-gcloud builds submit \
-  --tag YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex/researcher:dev \
-  --file Dockerfile.gcp .
+# Run only if the repository does not already exist:
+gcloud artifacts repositories create alex-researcher --repository-format=docker --location YOUR_REGION --project YOUR_PROJECT_ID
+gcloud auth configure-docker YOUR_REGION-docker.pkg.dev
+cd ..
+docker build --platform linux/amd64 -f researcher/Dockerfile.gcp -t YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-researcher/researcher:dev .
+docker push YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-researcher/researcher:dev
 ```
 
 The GCP image runs as a non-root user, installs Playwright Chromium, and does not include the AWS Lambda Web Adapter. The Playwright MCP browser runs without disabling Chromium's sandbox.
@@ -89,13 +102,13 @@ For local development, run the GCP app using its uv environment and valid GCP AD
 uv run uvicorn gcp_server:app --host 127.0.0.1 --port 8080
 ```
 
-The existing AWS `deploy.py` and `Dockerfile` are not part of this workflow.
+The retired AWS deployment script and Dockerfile are not used in this workflow.
 
 Example Cloud Run deployment after pushing the image:
 
 ```bash
 gcloud run deploy alex-researcher \
-  --image YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex/researcher:dev \
+  --image YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-researcher/researcher:dev \
   --region YOUR_REGION \
   --service-account alex-researcher@YOUR_PROJECT_ID.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
@@ -103,9 +116,11 @@ gcloud run deploy alex-researcher \
   --memory 2Gi \
   --concurrency 1 \
   --timeout 900 \
-  --set-env-vars RESEARCHER_MODEL=groq/llama-3.3-70b-versatile,ALEX_INGESTION_URL=https://YOUR_INGESTION_SERVICE.run.app,RESEARCH_TENANT_ID=public_research \
-  --set-secrets GROQ_API_KEY=alex-groq-api-key:latest
+  --set-env-vars ALEX_LLM_PROVIDER=huggingface,ALEX_LLM_MODEL=openai/gpt-oss-120b,ALEX_INGESTION_URL=https://YOUR_INGESTION_SERVICE.run.app,RESEARCH_TENANT_ID=public_research \
+  --set-secrets HF_TOKEN=alex-huggingface-token:latest
 ```
+
+For Nscale, replace the provider/model environment values and the secret binding, for example `--set-env-vars ALEX_LLM_PROVIDER=nscale,ALEX_LLM_MODEL=YOUR_NSCALE_MODEL,...` and `--set-secrets NSCALE_API_KEY=alex-nscale-token:latest`.
 
 Use a pinned image digest for repeatable deployments. Start with zero minimum instances and bounded concurrency; browser processes can use material memory/CPU.
 
@@ -133,7 +148,7 @@ The service liveness endpoint is `GET /healthz`; it does not make paid model or 
 
 Test the health endpoint, then request research on a bounded topic. Confirm the service:
 
-1. Invokes the configured Groq model within the account's current quota.
+1. Invokes the configured Hugging Face model within the account's current quota.
 2. Uses browser tools only for allowed destinations and handles untrusted web content as data.
 3. Sends the research document to the GCP ingestion API.
 4. Returns a clear response and does not log secrets or sensitive user data.
@@ -150,13 +165,13 @@ Monitor Cloud Scheduler job status and Cloud Run request/error logs. Disable or 
 ## Troubleshooting
 
 - **Container fails to start:** inspect Cloud Run startup logs, container port, dependencies, and browser libraries.
-- **Groq authentication, model, or rate-limit errors:** verify the Secret Manager version, model ID, account access, and current quota.
+- **Provider authentication, model, or rate-limit errors:** verify `ALEX_LLM_PROVIDER`, the matching secret environment variable and Secret Manager access/version, and that the selected model supports the needed features.
 - **Ingestion unauthorized:** check the service-to-service identity and target invoker permissions; do not make the ingestion service public as a shortcut.
 - **Timeouts:** inspect browser duration and service timeout; bound tool work rather than raising limits without evidence.
 
 ## Cleanup
 
-Delete the Cloud Scheduler job and Cloud Run service when not in use. Remove unused Artifact Registry images if appropriate. Groq is an external API, so there is no GCP model endpoint to delete; monitor Groq account usage and GCP Cloud Run/browser costs.
+Delete the Cloud Scheduler job and Cloud Run service when not in use. Remove unused Artifact Registry images if appropriate. Inference is hosted externally by the selected provider, so there is no GCP model endpoint to delete; monitor provider usage and GCP Cloud Run/browser costs.
 
 ## Next
 

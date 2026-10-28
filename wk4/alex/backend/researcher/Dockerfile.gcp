@@ -7,10 +7,15 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     XDG_CACHE_HOME=/tmp/.cache \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
     PORT=8080
 
 WORKDIR /app
 
+COPY gcp_agents/pyproject.toml /app/gcp_agents/pyproject.toml
+COPY gcp_agents/gcp_agents /app/gcp_agents/gcp_agents
+COPY researcher/pyproject.toml researcher/uv.lock /app/researcher/
+WORKDIR /app/researcher
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates curl gnupg \
     && install -m 0755 -d /etc/apt/keyrings \
@@ -25,16 +30,15 @@ RUN apt-get update \
     && npx --yes playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 RUN apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/* /tmp/.cache/uv
 
-COPY context.py gcp_context.py mcp_servers.py gcp_tools.py gcp_server.py ./
+COPY researcher/context.py researcher/gcp_context.py researcher/mcp_servers.py researcher/gcp_tools.py researcher/gcp_server.py ./
 
 RUN useradd --create-home --uid 10001 app \
     && chown -R app:app /app /ms-playwright
 USER app
 
 EXPOSE 8080
-CMD ["/app/.venv/bin/uvicorn", "gcp_server:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/researcher/.venv/bin/uvicorn", "gcp_server:app", "--host", "0.0.0.0", "--port", "8080"]

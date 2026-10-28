@@ -1,6 +1,6 @@
 # Alex Architecture Overview - Google Cloud
 
-This is the GCP target architecture for Alex. It preserves the product behavior of the AWS reference design while replacing AWS-only managed services. GCP implementations are being added incrementally alongside the AWS reference path; check `README.md` for current layer status.
+This is the supported GCP architecture for Alex. AWS service names below are shown only to explain the historical service mapping; AWS deployment is retired.
 
 ## System architecture
 
@@ -17,7 +17,7 @@ graph TB
     Planner --> Retirement[Retirement]
     Agents --> SQL[(Cloud SQL for PostgreSQL)]
     Reporter --> Vector[Vertex AI Vector Search]
-    Researcher[Researcher on Cloud Run] -->|Text generation| Groq[Groq API]
+    Researcher[Researcher on Cloud Run] -->|Text generation| LLM[Shared LLM provider<br/>HF default; Nscale optional]
     Researcher -->|Store research| Ingest[Cloud Run ingestion]
     Ingest -->|Embedding| Vertex
     Ingest -->|Documents| GCS[Cloud Storage]
@@ -39,7 +39,7 @@ graph TB
 | App Runner | Cloud Run service | Containerized HTTP application. |
 | ECR | Artifact Registry | Store pinned container images. |
 | EventBridge Scheduler | Cloud Scheduler | Use OIDC-authenticated invocation. |
-| Bedrock | Groq API via LiteLLM | Model names, API key handling, tool calling, quotas, and LiteLLM config differ. |
+| Bedrock | OpenAI-compatible inference provider | Hugging Face is the default; Nscale is supported. Model names, token permissions, tool calling, quotas, and routing differ. |
 | Aurora Serverless v2 + Data API | Cloud SQL for PostgreSQL | Requires connector/networking; no equivalent Data API and normally ongoing instance costs. |
 | SQS | Pub/Sub | At-least-once delivery; use idempotency and a dead-letter topic. |
 | CloudFront + S3 website | Cloud CDN + Cloud Storage or Cloud Run | Cloud Storage hosting is suitable only for a compatible static export. |
@@ -57,7 +57,7 @@ graph TB
 
 ## Deployment model
 
-Create new GCP Terraform stacks separate from the AWS directories. A sensible staged sequence is:
+Follow the GCP deployment guides in this order:
 
 1. Project, IAM, APIs, and billing alerts
 2. Vertex AI embedding model selection and validation

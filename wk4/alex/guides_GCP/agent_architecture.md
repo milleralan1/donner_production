@@ -22,7 +22,7 @@ graph TB
     DB --> Result[Complete Analysis]
 
     Scheduler[Cloud Scheduler] --> Researcher[Researcher]
-    Researcher --> Gemini[Vertex AI Gemini]
+    Researcher --> LLM[Shared LLM provider<br/>HF default; Nscale optional]
     Researcher --> Ingest[Ingestion service]
     Ingest --> Vectors
 ```
@@ -48,9 +48,9 @@ The scheduled Researcher is independent of user-triggered Planner work. Cloud Sc
 
 ## Model and tool design
 
-Select a Vertex AI model that supports the required tool/function-calling behavior and validate it in the chosen region. The AWS `bedrock/...` model identifiers, AWS credentials, and Bedrock region environment variables do not apply. Port the model adapter and test tool calls, structured output parsing, timeout, quota, and retry behavior.
+The Researcher and five agents use a shared LLM factory and configuration through the OpenAI-compatible Chat Completions API. Hugging Face Inference Providers is the default; Nscale is also supported. Confirm that the selected model/provider supports the required tool/function-calling and structured-output behavior; validate parsing, timeouts, quotas, and retry behavior. Inference is hosted externally, not by GCP.
 
-Preserve the existing OpenAI Agents SDK constraint noted in the AWS project: an agent should use either structured outputs or tools when the selected model/provider integration cannot support both reliably. Verify current SDK/provider capabilities rather than assuming provider parity.
+An agent should use either structured outputs or tools when its selected model/provider integration cannot support both reliably. Verify current SDK/provider capabilities rather than assuming provider parity.
 
 ## Data and explainability
 

@@ -1,4 +1,6 @@
-# Guide 8: Enterprise Grade - Scalability, Security, Monitoring, Guardrails & Observability
+> **RETIRED — AWS deployment is no longer supported.** Do not follow this guide or use its AWS commands. Start with the [supported Google Cloud guides](../guides_GCP/README.md).
+
+# RETIRED: Guide 8: Enterprise Grade - Scalability, Security, Monitoring, Guardrails & Observability
 
 Welcome to the final guide in the Alex Financial Advisor deployment series! In this guide, we'll transform our application into a production-ready, enterprise-grade system by implementing best practices for scalability, security, monitoring, guardrails, explainability, and observability.
 

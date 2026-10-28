@@ -96,7 +96,7 @@ def create_test_data(db_models: Database):
     
     if user_accounts:
         print(f"   ℹ️  User already has {len(user_accounts)} accounts")
-        account_ids = [acc['id'] for acc in user_accounts]
+        account_ids = [str(acc['id']) for acc in user_accounts]
     else:
         account_ids = []
         for acc_data in accounts:
@@ -108,7 +108,7 @@ def create_test_data(db_models: Database):
                 cash_balance=validated['cash_balance'],
                 cash_interest=validated['cash_interest']
             )
-            account_ids.append(acc_id)
+            account_ids.append(str(acc_id))
             print(f"   ✅ Created account: {validated['account_name']}")
     
     # Create test positions in first account (401k)

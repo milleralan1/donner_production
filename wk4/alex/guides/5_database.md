@@ -1,4 +1,6 @@
-# Building Alex: Part 5 - Database & Shared Infrastructure
+> **RETIRED — AWS deployment is no longer supported.** Do not follow this guide or use its AWS commands. Start with the [supported Google Cloud guides](../guides_GCP/README.md).
+
+# RETIRED: Building Alex: Part 5 - Database & Shared Infrastructure
 
 Welcome to Part 5! We're now entering the second phase of building Alex - transforming it from a research tool into a complete financial planning SaaS platform. In this guide, we'll set up Aurora Serverless v2 PostgreSQL with the Data API and create a reusable database library that all our AI agents will use.
 

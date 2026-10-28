@@ -44,13 +44,13 @@ terraform plan
 terraform apply
 ```
 
-Terraform state contains the generated database password even though it is marked sensitive and never output. Keep local state private, never commit it, and use an access-controlled remote backend for shared or production use. Set `deletion_protection = false` in the local tfvars before intentionally destroying the instance.
+Terraform state contains the generated database password even though it is marked sensitive and never output. Keep local state private, never commit it, and use an access-controlled remote backend for shared or production use. The stack enables both Terraform's deletion guard and Cloud SQL's server-side deletion protection. Set `deletion_protection = false` in the local tfvars before intentionally destroying the instance.
 
 Terraform grants the Cloud Run and agent runtime identities `roles/cloudsql.client` and access to only the database password secret. Use the generated least-privilege application database user rather than a PostgreSQL superuser for application queries.
 
 ## Step 3: Configure and test the connection layer
 
-The shared database package supports both providers. AWS remains the default; choose Cloud SQL explicitly with `DATABASE_BACKEND=cloud_sql`. Install the GCP extra in each service environment that uses the database (API and agents) and in `backend/database` for database scripts:
+The supported database package uses Cloud SQL. Set `DATABASE_BACKEND=cloud_sql` in each service environment that uses the database (API and agents) and install the GCP extra in those environments and in `backend/database` for database scripts:
 
 ```bash
 uv sync --extra gcp
@@ -95,7 +95,7 @@ uv run seed_data.py
 uv run verify_database.py
 ```
 
-The migration, seed, verification, and reset scripts use `DATABASE_BACKEND` like the application. `test_data_api.py` remains an AWS/Aurora diagnostic; use `test_cloud_sql.py` for Cloud SQL connectivity. The connectivity test requires the deployed instance, ADC, and the environment below. Do not run destructive reset scripts against a database containing data you need.
+The migration, seed, verification, and reset scripts use `DATABASE_BACKEND` like the application. Use `test_cloud_sql.py` for Cloud SQL connectivity. The connectivity test requires the deployed instance, ADC, and the environment below. Do not run destructive reset scripts against a database containing data you need.
 
 ## Step 5: Verify application data isolation
 

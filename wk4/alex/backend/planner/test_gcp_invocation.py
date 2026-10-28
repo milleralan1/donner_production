@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
-with patch.dict(os.environ, {"ALEX_LLM_PROVIDER": "groq"}):
+with patch.dict(os.environ, {"ALEX_LLM_PROVIDER": "huggingface"}):
     from agent import invoke_cloud_run_agent
 
 

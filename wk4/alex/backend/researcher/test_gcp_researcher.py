@@ -149,43 +149,44 @@ class GCPResearcherAPITests(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "Research request failed")
         self.assertNotIn("secret provider response", response.text)
 
-    def test_runtime_config_requires_groq_model_key_and_ingestion_url(self):
+    def test_runtime_config_requires_huggingface_model_token_and_ingestion_url(self):
         with patch.dict(
             "os.environ",
             {
-                "GROQ_API_KEY": "test-key",
-                "RESEARCHER_MODEL": "groq/llama-3.3-70b-versatile",
+                "HF_TOKEN": "test-token",
+                "ALEX_LLM_MODEL": "openai/gpt-oss-120b",
                 "ALEX_INGESTION_URL": "https://ingest-abc.run.app",
             },
             clear=True,
         ):
             self.assertEqual(
                 _get_runtime_config(),
-                "groq/llama-3.3-70b-versatile",
+                "openai/gpt-oss-120b",
             )
 
         with patch.dict(
             "os.environ",
             {
-                "GROQ_API_KEY": "test-key",
-                "RESEARCHER_MODEL": "vertex_ai/model-id",
+                "HF_TOKEN": "test-token",
+                "ALEX_LLM_MODEL": "Qwen/Qwen3-4B-Thinking-2507",
                 "ALEX_INGESTION_URL": "https://ingest-abc.run.app",
             },
             clear=True,
         ):
-            with self.assertRaisesRegex(ResearchConfigurationError, "groq/"):
-                _get_runtime_config()
+            self.assertEqual(
+                _get_runtime_config(),
+                "Qwen/Qwen3-4B-Thinking-2507",
+            )
 
-    def test_runtime_config_requires_groq_api_key(self):
+    def test_runtime_config_requires_huggingface_token(self):
         with patch.dict(
             "os.environ",
             {
-                "RESEARCHER_MODEL": "groq/llama-3.3-70b-versatile",
                 "ALEX_INGESTION_URL": "https://ingest-abc.run.app",
             },
             clear=True,
         ):
-            with self.assertRaisesRegex(ResearchConfigurationError, "GROQ_API_KEY"):
+            with self.assertRaisesRegex(ResearchConfigurationError, "HF_TOKEN"):
                 _get_runtime_config()
 
 

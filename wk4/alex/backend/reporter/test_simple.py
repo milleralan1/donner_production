@@ -27,7 +27,7 @@ def test_reporter():
     print(f"Created test job: {job_id}")
     
     test_event = {
-        "job_id": job_id,
+        "job_id": str(job_id),
         "portfolio_data": {
             "accounts": [
                 {

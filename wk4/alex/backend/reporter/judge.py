@@ -16,10 +16,10 @@ class Evaluation(BaseModel):
 
 
 async def evaluate(original_instructions, original_task, original_output) -> Evaluation:
-    """Evaluate a financial report using the configured Groq model."""
-    from gcp_agents.groq_model import create_groq_model
+    """Evaluate a financial report using the configured Hugging Face model."""
+    from gcp_agents.huggingface_model import create_llm_model
 
-    model = create_groq_model()
+    model = create_llm_model()
 
     instructions = """
 You are an Evaluation Agent that evaluates the quality of a financial report from a financial planning agent.

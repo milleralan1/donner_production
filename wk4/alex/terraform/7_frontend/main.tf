@@ -1,3 +1,4 @@
+# RETIRED AWS STACK — do not use for new deployments; see ../../terraform_gcp and ../../guides_GCP.
 # Part 7: Frontend & API Infrastructure
 
 terraform {
@@ -388,4 +389,3 @@ resource "aws_cloudfront_distribution" "main" {
     cloudfront_default_certificate = true
   }
 }
-

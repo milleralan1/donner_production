@@ -1,4 +1,6 @@
-# Building Alex: Part 2 - SageMaker Serverless Deployment
+> **RETIRED — AWS deployment is no longer supported.** Do not follow this guide or use its AWS commands. Start with the [supported Google Cloud guides](../guides_GCP/README.md).
+
+# RETIRED: Building Alex: Part 2 - SageMaker Serverless Deployment
 
 Welcome back! In this guide, we'll deploy a SageMaker Serverless endpoint that will generate embeddings for Alex's knowledge base. This is a critical component - it converts text into numerical vectors that can be searched and compared.
 

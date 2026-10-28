@@ -1,4 +1,6 @@
-# Building Alex: Part 3 - Ingestion Pipeline with S3 Vectors
+> **RETIRED — AWS deployment is no longer supported.** Do not follow this guide or use its AWS commands. Start with the [supported Google Cloud guides](../guides_GCP/README.md).
+
+# RETIRED: Building Alex: Part 3 - Ingestion Pipeline with S3 Vectors
 
 Welcome back! In this guide, we'll deploy a cost-effective vector storage solution using AWS S3 Vectors:
 - S3 Vectors for vector storage (90% cheaper than OpenSearch!)

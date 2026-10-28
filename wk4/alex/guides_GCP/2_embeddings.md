@@ -38,7 +38,7 @@ The repository includes `backend/ingest/vertex_embeddings.py`, a Vertex AI imple
 
 ```bash
 cd backend/ingest
-uv sync --extra gcp
+uv sync
 uv run test_vertex_embeddings.py
 ```
 
@@ -61,7 +61,7 @@ Record the verified dimension in configuration used by the vector index. Keep th
 
 ## Step 3: Understand the hosting difference
 
-The AWS path provisions a SageMaker Serverless endpoint and calls SageMaker Runtime. A managed Vertex AI embedding API generally needs no user-created endpoint. It is billed according to the model's pricing and usage; it does not necessarily scale or price exactly like SageMaker Serverless.
+A managed Vertex AI embedding API generally needs no user-created endpoint. It is billed according to the model's pricing and usage.
 
 If a selected embedding model requires a custom deployed endpoint, follow that model's current Vertex AI deployment instructions and assess the endpoint's minimum/idle cost before provisioning it.
 
@@ -75,7 +75,7 @@ Check Vertex AI pricing and quotas before running bulk tests. Managed API calls 
 
 ## Migration work required
 
-The GCP embedding client and mocked unit tests are implemented; the existing AWS ingestion scripts still use SageMaker Runtime. The real Vertex AI model call still needs GCP credentials. Guide 3 adds a separate GCP ingestion/search service, but it requires a provisioned vector index and endpoint before an end-to-end live test. The AWS setup's endpoint name and Terraform outputs are not valid Vertex AI configuration.
+The supported GCP embedding client and mocked unit tests are implemented. The real Vertex AI model call requires GCP credentials. Guide 3 configures the GCP ingestion/search service and requires a provisioned vector index and endpoint before an end-to-end live test.
 
 ## Next
 

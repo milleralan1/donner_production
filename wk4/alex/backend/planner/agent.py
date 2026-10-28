@@ -243,9 +243,9 @@ def create_agent(job_id: str, portfolio_summary: Dict[str, Any], db):
     # Create context for tools
     context = PlannerContext(job_id=job_id)
 
-    from gcp_agents.groq_model import create_groq_model
+    from gcp_agents.huggingface_model import create_llm_model
 
-    model = create_groq_model()
+    model = create_llm_model()
 
     tools = [
         invoke_reporter,

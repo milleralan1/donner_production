@@ -37,21 +37,48 @@ variable "api_service_account_email" {
   type        = string
 }
 
-variable "groq_model" {
-  description = "LiteLLM Groq model name supporting the agent tool calls."
+variable "llm_provider" {
+  description = "OpenAI-compatible provider name from the shared LLM configuration."
   type        = string
-  default     = "groq/llama-3.3-70b-versatile"
+  default     = null
+  nullable    = true
 
   validation {
-    condition     = startswith(var.groq_model, "groq/")
-    error_message = "groq_model must use the groq/ LiteLLM prefix."
+    condition = var.llm_provider == null || contains(
+      keys(jsondecode(file("${path.module}/../../backend/gcp_agents/gcp_agents/llm_config.json")).providers),
+      var.llm_provider
+    )
+    error_message = "llm_provider must be listed in the shared LLM configuration."
   }
 }
 
-variable "groq_api_key_secret_id" {
-  description = "Secret Manager secret ID containing the Groq API key."
+variable "llm_model" {
+  description = "Optional provider-specific model ID override; defaults to the shared LLM configuration."
   type        = string
-  default     = "alex-groq-api-key"
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.llm_model == null || length(trimspace(var.llm_model)) > 0
+    error_message = "llm_model must be non-empty when set."
+  }
+
+  validation {
+    condition     = var.llm_provider != "nscale" || (var.llm_model != null && length(trimspace(var.llm_model)) > 0)
+    error_message = "Set llm_model to a model available in Nscale when llm_provider is nscale."
+  }
+}
+
+variable "huggingface_token_secret_id" {
+  description = "Secret Manager secret ID containing a Hugging Face Inference Providers token."
+  type        = string
+  default     = "alex-huggingface-token"
+}
+
+variable "nscale_token_secret_id" {
+  description = "Secret Manager secret ID containing an Nscale service token."
+  type        = string
+  default     = "alex-nscale-token"
 }
 
 variable "database_connection_name" {

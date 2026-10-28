@@ -5,14 +5,14 @@ import os
 from datetime import UTC, datetime
 from typing import Optional
 
-from agents import Agent, OpenAIChatCompletionsModel, Runner, trace
+from agents import Agent, Runner, trace
 from fastapi import FastAPI, HTTPException
-from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from context import DEFAULT_RESEARCH_PROMPT
 from gcp_context import get_agent_instructions
 from gcp_tools import ingest_financial_document
+from gcp_agents.huggingface_model import create_llm_model, get_llm_config
 from mcp_servers import create_playwright_mcp_server
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
@@ -40,44 +40,29 @@ class ResearchRequest(BaseModel):
 
 
 def _get_runtime_config():
-    model_name = os.environ.get("RESEARCHER_MODEL")
+    try:
+        model_name = get_llm_config("researcher").model
+    except ValueError as error:
+        raise ResearchConfigurationError(str(error)) from error
 
-    missing = [
-        name
-        for name, value in (
-            ("GROQ_API_KEY", os.environ.get("GROQ_API_KEY")),
-            ("RESEARCHER_MODEL", model_name),
-            ("ALEX_INGESTION_URL", os.environ.get("ALEX_INGESTION_URL")),
-        )
-        if not value
-    ]
+    missing = ["ALEX_INGESTION_URL"] if not os.environ.get("ALEX_INGESTION_URL") else []
     if missing:
         raise ResearchConfigurationError(
             "Missing GCP researcher configuration: " + ", ".join(missing)
-        )
-    if not model_name.startswith("groq/"):
-        raise ResearchConfigurationError(
-            "RESEARCHER_MODEL must use the groq/ model prefix"
         )
     return model_name
 
 
 async def run_research_agent(topic: Optional[str] = None) -> str:
     """Run bounded web research and store its result in the GCP knowledge base."""
-    model_name = _get_runtime_config()
+    _get_runtime_config()
 
     query = (
         f"Research this investment topic: {topic.strip()}"
         if topic
         else DEFAULT_RESEARCH_PROMPT
     )
-    model = OpenAIChatCompletionsModel(
-        model=model_name.removeprefix("groq/"),
-        openai_client=AsyncOpenAI(
-            api_key=os.environ["GROQ_API_KEY"],
-            base_url="https://api.groq.com/openai/v1",
-        ),
-    )
+    model = create_llm_model("researcher")
 
     with trace("GCP Researcher"):
         async with create_playwright_mcp_server(

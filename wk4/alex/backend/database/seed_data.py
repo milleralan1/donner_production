@@ -467,8 +467,12 @@ def main():
         raise SystemExit(1)
     print("\n✅ Seed data loaded successfully!")
     print("\n📝 Next steps:")
-    print("1. Create test user and portfolio: uv run create_test_data.py")
-    print("2. Test database operations: uv run test_db.py")
+    print(
+        "1. Optional: create a sample user and portfolio with "
+        "`uv run reset_db.py --with-test-data --skip-drop`"
+    )
+    print("2. Verify the database with `uv run verify_database.py`")
+    print("3. Run database unit tests with `uv run test_cloud_sql_client.py`")
 
 
 if __name__ == "__main__":

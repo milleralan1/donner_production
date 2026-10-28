@@ -139,9 +139,9 @@ def analyze_portfolio(portfolio_data: Dict[str, Any]) -> str:
 def create_agent(job_id: str, portfolio_data: Dict[str, Any], db=None):
     """Create the charter agent without tools - will output JSON directly."""
     
-    from gcp_agents.groq_model import create_groq_model
+    from gcp_agents.huggingface_model import create_llm_model
 
-    model = create_groq_model()
+    model = create_llm_model()
 
     logger.info("Charter: Creating agent for job %s", job_id)
     logger.info(f"Charter: Job ID: {job_id}")

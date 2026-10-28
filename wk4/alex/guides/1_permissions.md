@@ -1,4 +1,6 @@
-# Building Alex: Part 1 - AWS Permissions Setup
+> **RETIRED — AWS deployment is no longer supported.** Do not follow this guide or use its AWS commands. Start with the [supported Google Cloud guides](../guides_GCP/README.md).
+
+# RETIRED: Building Alex: Part 1 - AWS Permissions Setup
 
 Welcome to Project Alex - the Agentic Learning Equities eXplainer! 
 

@@ -1,4 +1,6 @@
-# Guide 4: Deploy the Researcher Agent
+> **RETIRED — AWS deployment is no longer supported.** Do not follow this guide or use its AWS commands. Start with the [supported Google Cloud guides](../guides_GCP/README.md).
+
+# RETIRED: Guide 4: Deploy the Researcher Agent
 
 In this guide, you'll deploy the Alex Researcher service - an AI agent that generates investment research and automatically stores it in your knowledge base.
 

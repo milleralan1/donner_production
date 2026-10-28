@@ -1,6 +1,6 @@
 # Building Alex: Part 1 - Google Cloud Project and IAM
 
-In this guide, prepare a Google Cloud project for Alex. The AWS guide's IAM users and groups do not map directly to Google Cloud: use Cloud Identity/Google accounts for people and dedicated service accounts for workloads.
+In this guide, prepare a Google Cloud project for Alex. Use Cloud Identity/Google accounts for people and dedicated service accounts for workloads. AWS is retired and is not a deployment option.
 
 ## What you'll set up
 
@@ -106,7 +106,7 @@ An IAM permission error is not evidence that a broader role should be granted. I
 
 ## Infrastructure organization
 
-Use a separate Terraform directory and state for each guide, mirroring the educational isolation of the AWS setup. The current `terraform/2_sagemaker`, `3_ingestion`, and other directories are AWS-only and must not be reused as GCP configurations. Create separate GCP directories/modules, review `terraform plan`, and protect each state file because it can contain sensitive values.
+Use the supported `terraform_gcp/` stacks only. The old `terraform/` directory contains retired AWS configurations; do not initialize or apply them. Guides 5-8 each have an independent GCP stack. Guides 1-4 use the console/CLI steps documented in those guides.
 
 ## Next
 

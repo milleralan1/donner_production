@@ -116,8 +116,6 @@ def handle_event(event):
     # Wrap entire handler with observability context
     with observe() as observability:
         try:
-            logger.info(f"Reporter invoked with event: {json.dumps(event)[:500]}")
-
             # Parse event
             if isinstance(event, str):
                 event = json.loads(event)
@@ -125,6 +123,7 @@ def handle_event(event):
             job_id = event.get("job_id")
             if not job_id:
                 raise ValueError("job_id is required")
+            logger.info("Reporter invoked for job %s", job_id)
 
             # Initialize database
             db = Database()

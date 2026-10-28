@@ -31,11 +31,13 @@ resource "google_sql_database_instance" "alex" {
   deletion_protection = var.deletion_protection
 
   settings {
-    tier              = var.tier
-    availability_type = "ZONAL"
-    disk_type         = "PD_SSD"
-    disk_size         = var.disk_size_gb
-    disk_autoresize   = true
+    edition                     = "ENTERPRISE"
+    tier                        = var.tier
+    availability_type           = "ZONAL"
+    disk_type                   = "PD_SSD"
+    disk_size                   = var.disk_size_gb
+    disk_autoresize             = true
+    deletion_protection_enabled = var.deletion_protection
 
     backup_configuration {
       enabled                        = true

@@ -1,38 +1,20 @@
-# Alex - the Agentic Learning Equities Explainer
+# Alex - Agentic Learning Equities Explainer
 
-## Multi-agent Enterprise-Grade SaaS Financial Planner
+Alex is a multi-agent financial planning learning project. **Google Cloud is the only supported deployment target.** AWS deployment code, Terraform, and the original AWS guides are retained only as retired historical references; do not use them to deploy or modify live resources.
 
-![Course Image](assets/alex.png)
+## Start here
 
-_If you're looking at this in Cursor, please right click on the filename in the Explorer on the left, and select "Open preview", to view it in formatted glory._
+Follow the [Google Cloud deployment guides](guides_GCP/README.md) in order. They cover project setup, Vertex AI embeddings, ingestion and vector search, the research agent, Cloud SQL, the agent orchestra, the web app/API, and enterprise monitoring.
 
-### Welcome to The Capstone Project for Week 3 and Week 4!
+The canonical GCP infrastructure is under `terraform_gcp/`. Some early guide resources are configured with `gcloud` because model and vector-index settings depend on the selected region and model; use the exact GCP guide instructions. The old `terraform/` configurations are retired and must not be applied.
 
-#### The directories:
+## Project directories
 
-1. **guides** - this is where you will live - step by step guides to deploy to production
-2. **backend** - the agent code, organized into subdirectories, each a uv project (as is the backend parent directory)
-3. **frontend** - a NextJS React frontend integrated with Clerk
-4. **terraform** - separate terraform subdirectories with state for each part
-5. **scripts** - the final deployment script
+- `backend/` - Python services and agents, managed with `uv`
+- `frontend/` - Next.js application with Clerk authentication
+- `guides_GCP/` - supported deployment instructions
+- `terraform_gcp/` - GCP Terraform stacks for database, agents, frontend/API, and enterprise monitoring
+- `guides/` and `terraform/` - retired AWS reference material
+- `scripts/` - local development and GCP deployment helpers
 
-#### Order of play:
-
-##### Week 3
-
-- On Week 3 Day 3, we will do 1_permissions and 2_sagemaker
-- On Week 3 Day 4, we will do 3_ingest
-- On Week 3 Day 5, we will do 4_researcher
-
-##### Week 4
-
-- On Week 4 Day 1, we will do 5_database
-- On Week 4 Day 2, we will do 6_agents
-- On Week 4 Day 3, we will do 7_frontend
-- On Week 4 Day 4, we will do 8_enterprise
-
-#### Keep in mind
-
-- Please submit your community_contributions, including links to your repos, in the production repo community_contributions folder
-- Regularly do a git pull to get the latest code
-- Reach out in Udemy or email (ed@edwarddonner.com) if I can help! This is a gigantic project and I am here to help you deliver it!
+Set billing alerts and review Google Cloud costs regularly. Cloud SQL, Vertex AI Vector Search, Cloud Run, network egress, and model usage can incur charges. Destroy development resources when they are not in use, while protecting any data you need to retain.

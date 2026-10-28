@@ -1,398 +1,191 @@
 #!/usr/bin/env python3
-"""
-Deploy the Alex Financial Advisor Part 7 infrastructure.
-This script:
-1. Packages the Lambda function
-2. Deploys infrastructure with Terraform to get API URL
-3. Builds the NextJS frontend with production API URL
-4. Uploads frontend files to S3
-5. Invalidates CloudFront cache
+"""Build and deploy Alex's GCP API and frontend using the Guide 7 Terraform stack."""
 
-NOTE: This script uses .env.production for deployment and does NOT modify .env.local
-"""
-
-import subprocess
-import sys
+import argparse
 import os
-import json
-import time
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
-# On Windows, npm/node are .cmd files and need shell=True to be found
-IS_WINDOWS = sys.platform == "win32"
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BACKEND_DIR = PROJECT_ROOT / "backend"
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+TERRAFORM_DIR = PROJECT_ROOT / "terraform_gcp" / "7_frontend"
 
 
-def run_command(cmd, cwd=None, check=True, capture_output=False, env=None):
-    """Run a command and optionally capture output."""
-    print(f"Running: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-
-    if capture_output:
-        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, shell=isinstance(cmd, str), env=env)
-        if check and result.returncode != 0:
-            print(f"Error: {result.stderr}")
-            sys.exit(1)
-        return result.stdout.strip()
-    else:
-        result = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str), env=env)
-        if check and result.returncode != 0:
-            sys.exit(1)
-        return None
+def run(command: list[str], *, cwd: Path, capture: bool = False) -> str:
+    print(f"+ {' '.join(command)}")
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        check=True,
+        text=True,
+        capture_output=capture,
+    )
+    return result.stdout.strip() if capture else ""
 
 
-def check_prerequisites():
-    """Check that all required tools are installed."""
-    print("🔍 Checking prerequisites...")
-
-    # Check for required tools
-    tools = {
-        "docker": "Docker is required for Lambda packaging",
-        "terraform": "Terraform is required for infrastructure deployment",
-        "npm": "npm is required for building the frontend",
-        "aws": "AWS CLI is required for S3 sync and CloudFront invalidation"
-    }
-
-    for tool, message in tools.items():
-        try:
-            use_shell = IS_WINDOWS and tool == "npm"
-            if use_shell:
-                run_command(f"{tool} --version", capture_output=True)
-            else:
-                run_command([tool, "--version"], capture_output=True)
-            print(f"  ✅ {tool} is installed")
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            print(f"  ❌ {message}")
-            sys.exit(1)
-
-    # Check if Docker is running
-    try:
-        run_command(["docker", "info"], capture_output=True)
-        print("  ✅ Docker is running")
-    except subprocess.CalledProcessError:
-        print("  ❌ Docker is not running. Please start Docker Desktop.")
-        sys.exit(1)
-
-    # Check AWS credentials
-    try:
-        run_command(["aws", "sts", "get-caller-identity"], capture_output=True)
-        print("  ✅ AWS credentials configured")
-    except subprocess.CalledProcessError:
-        print("  ❌ AWS credentials not configured. Run 'aws configure'")
-        sys.exit(1)
+def require_tools() -> None:
+    missing = [tool for tool in ("docker", "gcloud", "terraform") if not shutil.which(tool)]
+    if missing:
+        raise SystemExit(f"Missing required tools: {', '.join(missing)}")
 
 
-def package_lambda():
-    """Package the Lambda function using Docker."""
-    print("\n📦 Packaging Lambda function...")
-
-    api_dir = Path(__file__).parent.parent / "backend" / "api"
-
-    if not api_dir.exists():
-        print(f"  ❌ API directory not found: {api_dir}")
-        sys.exit(1)
-
-    # Run the packaging script
-    run_command(["uv", "run", "package_docker.py"], cwd=api_dir)
-
-    # Verify the package was created
-    lambda_zip = api_dir / "api_lambda.zip"
-    if not lambda_zip.exists():
-        print(f"  ❌ Lambda package not created: {lambda_zip}")
-        sys.exit(1)
-
-    size_mb = lambda_zip.stat().st_size / (1024 * 1024)
-    print(f"  ✅ Lambda package created: {lambda_zip} ({size_mb:.2f} MB)")
-
-
-def build_frontend(api_url=None):
-    """Build the NextJS frontend."""
-    print("\n🎨 Building frontend...")
-
-    frontend_dir = Path(__file__).parent.parent / "frontend"
-
-    if not frontend_dir.exists():
-        print(f"  ❌ Frontend directory not found: {frontend_dir}")
-        sys.exit(1)
-
-    # Install dependencies if needed
-    node_modules = frontend_dir / "node_modules"
-    if not node_modules.exists():
-        print("  Installing dependencies...")
-        run_command("npm install" if IS_WINDOWS else ["npm", "install"], cwd=frontend_dir)
-
-    # If API URL is provided, create .env.production.local to override .env.local
-    if api_url:
-        print(f"  Creating .env.production.local with API URL: {api_url}")
-        env_prod_local = frontend_dir / ".env.production.local"
-
-        # Copy from .env.production as base
-        env_prod = frontend_dir / ".env.production"
-        if env_prod.exists():
-            with open(env_prod, "r") as f:
-                lines = f.readlines()
-        else:
-            # Fallback to .env.local if .env.production doesn't exist
-            env_local = frontend_dir / ".env.local"
-            if env_local.exists():
-                with open(env_local, "r") as f:
-                    lines = f.readlines()
-            else:
-                lines = []
-
-        # Update the API URL
-        api_line_found = False
-        for i, line in enumerate(lines):
-            if line.startswith("NEXT_PUBLIC_API_URL="):
-                lines[i] = f"NEXT_PUBLIC_API_URL={api_url}\n"
-                api_line_found = True
-                break
-
-        if not api_line_found:
-            lines.append(f"\nNEXT_PUBLIC_API_URL={api_url}\n")
-
-        # Write to .env.production.local (highest priority for production builds)
-        with open(env_prod_local, "w") as f:
-            f.writelines(lines)
-        print("  ✅ Created .env.production.local with API URL")
-
-    # Build the frontend - NextJS will automatically use .env.production for production builds
-    print("  Building NextJS app for production...")
-    # Set NODE_ENV to production to ensure .env.production is used
-    build_env = os.environ.copy()
-    build_env["NODE_ENV"] = "production"
-    run_command("npm run build" if IS_WINDOWS else ["npm", "run", "build"], cwd=frontend_dir, env=build_env)
-
-    # Verify the build
-    out_dir = frontend_dir / "out"
-    if not out_dir.exists():
-        print(f"  ❌ Build output not found: {out_dir}")
-        print("  Make sure next.config.ts has output: 'export'")
-        sys.exit(1)
-
-    print(f"  ✅ Frontend built successfully")
-
-
-def deploy_terraform():
-    """Deploy infrastructure with Terraform."""
-    print("\n🏗️  Deploying infrastructure with Terraform...")
-
-    terraform_dir = Path(__file__).parent.parent / "terraform" / "7_frontend"
-
-    if not terraform_dir.exists():
-        print(f"  ❌ Terraform directory not found: {terraform_dir}")
-        sys.exit(1)
-
-    # Initialize Terraform if needed
-    if not (terraform_dir / ".terraform").exists():
-        print("  Initializing Terraform...")
-        run_command(["terraform", "init"], cwd=terraform_dir)
-
-    # Plan the deployment
-    print("  Planning deployment...")
-    run_command(["terraform", "plan"], cwd=terraform_dir)
-
-    # Apply the deployment
-    print("\n  Applying deployment...")
-    print("  Creating AWS resources...")
-    run_command(["terraform", "apply", "-auto-approve"], cwd=terraform_dir)
-
-    # Get outputs
-    print("\n  Getting outputs...")
-    outputs = run_command(
-        ["terraform", "output", "-json"],
-        cwd=terraform_dir,
-        capture_output=True
+def terraform(*args: str, project_id: str, region: str, capture: bool = False) -> str:
+    return run(
+        [
+            "terraform",
+            *args,
+            f"-var=project_id={project_id}",
+            f"-var=region={region}",
+        ],
+        cwd=TERRAFORM_DIR,
+        capture=capture,
     )
 
-    return json.loads(outputs)
 
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Deploy the GCP API and Next.js frontend from terraform_gcp/7_frontend."
+    )
+    parser.add_argument("--project-id", required=True, help="Google Cloud project ID")
+    parser.add_argument("--region", required=True, help="GCP region used by the Terraform stack")
+    parser.add_argument(
+        "--clerk-publishable-key",
+        help="Clerk public publishable key; may instead be set in CLERK_PUBLISHABLE_KEY",
+    )
+    parser.add_argument(
+        "--tag",
+        default="dev",
+        help="Container image tag (default: dev; use immutable tags for production)",
+    )
+    args = parser.parse_args()
 
-def upload_frontend(bucket_name, cloudfront_id):
-    """Upload frontend files to S3."""
-    print(f"\n📤 Uploading frontend to S3 bucket: {bucket_name}")
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", args.tag):
+        parser.error("--tag must be a valid Docker image tag")
+    clerk_key = args.clerk_publishable_key or os.environ.get("CLERK_PUBLISHABLE_KEY")
+    if not clerk_key:
+        parser.error("provide --clerk-publishable-key or set CLERK_PUBLISHABLE_KEY")
+    if not (TERRAFORM_DIR / "terraform.tfvars").is_file():
+        raise SystemExit(
+            f"Missing {TERRAFORM_DIR / 'terraform.tfvars'}; copy the example and configure it first."
+        )
 
-    frontend_dir = Path(__file__).parent.parent / "frontend" / "out"
+    require_tools()
+    run(["docker", "info"], cwd=PROJECT_ROOT, capture=True)
+    active_account = run(
+        ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+        cwd=PROJECT_ROOT,
+        capture=True,
+    )
+    if not active_account:
+        raise SystemExit("No active gcloud account. Run `gcloud auth login` first.")
+    configured_project = run(
+        ["gcloud", "config", "get-value", "project"], cwd=PROJECT_ROOT, capture=True
+    )
+    if configured_project not in ("", "(unset)", args.project_id):
+        raise SystemExit(
+            f"gcloud is configured for {configured_project}, not {args.project_id}. "
+            "Select the intended project before deploying."
+        )
 
-    if not frontend_dir.exists():
-        print(f"  ❌ Frontend build not found: {frontend_dir}")
-        sys.exit(1)
+    run(["terraform", "init"], cwd=TERRAFORM_DIR)
+    run(["terraform", "validate"], cwd=TERRAFORM_DIR)
 
-    # First, clear the bucket
-    print("  Clearing S3 bucket...")
-    run_command([
-        "aws", "s3", "rm",
-        f"s3://{bucket_name}/",
-        "--recursive"
-    ])
+    # The image repository must exist before containers can be pushed.
+    terraform(
+        "apply",
+        "-target=google_artifact_registry_repository.app",
+        project_id=args.project_id,
+        region=args.region,
+    )
+    repository = run(
+        ["terraform", "output", "-raw", "artifact_registry_repository"],
+        cwd=TERRAFORM_DIR,
+        capture=True,
+    )
+    registry_host = repository.split("/", 1)[0]
+    run(["gcloud", "auth", "configure-docker", registry_host], cwd=PROJECT_ROOT)
 
-    # Upload HTML files with correct content type and no-cache
-    print("  Uploading HTML files...")
-    run_command([
-        "aws", "s3", "cp",
-        str(frontend_dir) + "/",
-        f"s3://{bucket_name}/",
-        "--recursive",
-        "--exclude", "*",
-        "--include", "*.html",
-        "--content-type", "text/html",
-        "--cache-control", "max-age=0,no-cache,no-store,must-revalidate"
-    ])
+    api_image = f"{repository}/api:{args.tag}"
+    frontend_image = f"{repository}/frontend:{args.tag}"
+    run(
+        [
+            "docker",
+            "build",
+            "--platform",
+            "linux/amd64",
+            "-f",
+            "api/Dockerfile.gcp",
+            "-t",
+            api_image,
+            ".",
+        ],
+        cwd=BACKEND_DIR,
+    )
+    run(["docker", "push", api_image], cwd=BACKEND_DIR)
 
-    # Upload CSS files
-    print("  Uploading CSS files...")
-    run_command([
-        "aws", "s3", "cp",
-        str(frontend_dir) + "/",
-        f"s3://{bucket_name}/",
-        "--recursive",
-        "--exclude", "*",
-        "--include", "*.css",
-        "--content-type", "text/css",
-        "--cache-control", "max-age=31536000,public"
-    ])
+    terraform(
+        "apply",
+        "-target=google_cloud_run_v2_service.api",
+        f"-var=api_image_url={api_image}",
+        project_id=args.project_id,
+        region=args.region,
+    )
+    api_url = run(
+        ["terraform", "output", "-raw", "api_url"], cwd=TERRAFORM_DIR, capture=True
+    )
+    if not api_url.startswith("https://"):
+        raise SystemExit(f"Terraform returned an invalid API URL: {api_url!r}")
 
-    # Upload JS files
-    print("  Uploading JavaScript files...")
-    run_command([
-        "aws", "s3", "cp",
-        str(frontend_dir) + "/",
-        f"s3://{bucket_name}/",
-        "--recursive",
-        "--exclude", "*",
-        "--include", "*.js",
-        "--content-type", "application/javascript",
-        "--cache-control", "max-age=31536000,public"
-    ])
+    run(
+        [
+            "docker",
+            "build",
+            "--platform",
+            "linux/amd64",
+            "-f",
+            "Dockerfile.gcp",
+            "--build-arg",
+            f"NEXT_PUBLIC_API_URL={api_url}",
+            "--build-arg",
+            f"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY={clerk_key}",
+            "-t",
+            frontend_image,
+            ".",
+        ],
+        cwd=FRONTEND_DIR,
+    )
+    run(["docker", "push", frontend_image], cwd=FRONTEND_DIR)
 
-    # Upload JSON files
-    print("  Uploading JSON files...")
-    run_command([
-        "aws", "s3", "cp",
-        str(frontend_dir) + "/",
-        f"s3://{bucket_name}/",
-        "--recursive",
-        "--exclude", "*",
-        "--include", "*.json",
-        "--content-type", "application/json",
-        "--cache-control", "max-age=31536000,public"
-    ])
-
-    # Upload images
-    for ext, content_type in [
-        ("*.png", "image/png"),
-        ("*.jpg", "image/jpeg"),
-        ("*.jpeg", "image/jpeg"),
-        ("*.gif", "image/gif"),
-        ("*.svg", "image/svg+xml"),
-        ("*.ico", "image/x-icon")
-    ]:
-        run_command([
-            "aws", "s3", "cp",
-            str(frontend_dir) + "/",
-            f"s3://{bucket_name}/",
-            "--recursive",
-            "--exclude", "*",
-            "--include", ext,
-            "--content-type", content_type,
-            "--cache-control", "max-age=31536000,public"
-        ])
-
-    # Upload any remaining files with generic content type
-    print("  Uploading remaining files...")
-    run_command([
-        "aws", "s3", "sync",
-        str(frontend_dir) + "/",
-        f"s3://{bucket_name}/",
-        "--cache-control", "max-age=31536000,public"
-    ])
-
-    print(f"  ✅ Frontend uploaded successfully")
-
-    # Invalidate CloudFront cache
-    print(f"\n🔄 Invalidating CloudFront cache...")
-    result = run_command([
-        "aws", "cloudfront", "create-invalidation",
-        "--distribution-id", cloudfront_id,
-        "--paths", "/*"
-    ], capture_output=True)
-
-    print(f"  ✅ CloudFront invalidation created")
-
-
-def display_deployment_info(outputs):
-    """Display deployment information without modifying local env files."""
-    print("\n📝 Deployment Information")
-
-    # Extract values from outputs
-    api_url = outputs["api_gateway_url"]["value"]
-    cloudfront_url = outputs["cloudfront_url"]["value"]
-
-    print(f"\n  ✅ Deployment successful!")
-    print(f"\n  CloudFront URL: {cloudfront_url}")
-    print(f"  API Gateway URL: {api_url}")
-    print(f"\n  Note: Your local .env.local file remains unchanged.")
-    print(f"  The production build uses .env.production with the AWS API URL.")
-
-
-def main():
-    """Main deployment function."""
-    print("🚀 Alex Financial Advisor - Part 7 Deployment")
-    print("=" * 50)
-
-    # Check prerequisites
-    check_prerequisites()
-
-    # Package Lambda
-    package_lambda()
-
-    # Deploy infrastructure first to get the API URL
-    outputs = deploy_terraform()
-
-    # Get the API URL from terraform outputs
-    api_url = outputs["api_gateway_url"]["value"]
-
-    # Build frontend with the production API URL
-    build_frontend(api_url)
-
-    # Extract CloudFront distribution ID
-    cloudfront_url = outputs["cloudfront_url"]["value"]
-    # Extract distribution ID from CloudFront URL
-    dist_id_output = run_command([
-        "aws", "cloudfront", "list-distributions",
-        "--query", f"DistributionList.Items[?DomainName=='{cloudfront_url.replace('https://', '')}'].Id",
-        "--output", "text"
-    ], capture_output=True)
-
-    if not dist_id_output:
-        print("  ⚠️  Could not find CloudFront distribution ID")
-        print("  You'll need to manually invalidate the cache")
-        cloudfront_id = None
-    else:
-        cloudfront_id = dist_id_output
-
-    # Upload frontend
-    bucket_name = outputs["s3_bucket_name"]["value"]
-    if cloudfront_id:
-        upload_frontend(bucket_name, cloudfront_id)
-    else:
-        print("\n📤 Uploading frontend to S3...")
-        run_command([
-            "aws", "s3", "sync",
-            str(Path(__file__).parent.parent / "frontend" / "out") + "/",
-            f"s3://{bucket_name}/",
-            "--delete"
-        ])
-
-    # Display deployment info (no longer modifies .env.local)
-    display_deployment_info(outputs)
-
-    print("\n" + "=" * 50)
-    print("✅ Deployment complete!")
-    print(f"\n🌐 Your application is available at:")
-    print(f"   {outputs['cloudfront_url']['value']}")
-    print(f"\n📊 Monitor your Lambda function at:")
-    print(f"   AWS Console > Lambda > {outputs['lambda_function_name']['value']}")
-    print("\n⏳ Note: CloudFront distribution may take 5-10 minutes to fully propagate")
+    terraform(
+        "apply",
+        f"-var=api_image_url={api_image}",
+        f"-var=frontend_image_url={frontend_image}",
+        project_id=args.project_id,
+        region=args.region,
+    )
+    frontend_url = run(
+        ["terraform", "output", "-raw", "frontend_url"],
+        cwd=TERRAFORM_DIR,
+        capture=True,
+    )
+    frontend_origin = frontend_url.rstrip("/")
+    terraform(
+        "apply",
+        f"-var=api_image_url={api_image}",
+        f"-var=frontend_image_url={frontend_image}",
+        f"-var=frontend_origin={frontend_origin}",
+        project_id=args.project_id,
+        region=args.region,
+    )
+    print(f"\nDeployment complete\nFrontend: {frontend_url}\nAPI:      {api_url}")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(error.returncode) from error

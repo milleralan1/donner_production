@@ -1,6 +1,6 @@
 # Guide 8: Enterprise Features on Google Cloud
 
-This final guide maps Alex's scalability, security, monitoring, guardrails, explainability, and observability practices to Google Cloud. The GCP Monitoring stack and frontend security headers are implemented separately from AWS. No cloud resources are created until you review and apply the Terraform configuration.
+This final guide covers Alex's scalability, security, monitoring, guardrails, explainability, and observability practices on Google Cloud. No cloud resources are created until you review and apply the Terraform configuration.
 
 ## 1. Scale deliberately
 
@@ -92,7 +92,7 @@ Send only data approved for external processing. Redact tokens and sensitive fie
 
 ## 8. Browser security headers
 
-The GCP standalone Next.js build adds HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a restrictive `Permissions-Policy`. These headers are served by the Next.js Cloud Run container; the AWS static-export build remains unchanged. CSP is intentionally not set here because Clerk domains and inline Next.js behavior must be verified against the selected Clerk instance before enforcing a policy.
+The GCP standalone Next.js build adds HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a restrictive `Permissions-Policy`. CSP is intentionally not set here because Clerk domains and inline Next.js behavior must be verified against the selected Clerk instance before enforcing a policy.
 
 After deployment, inspect response headers for both `/` and a static asset. Cloud Run's public service URL is HTTPS; if you front it with a custom domain or proxy, confirm that endpoint also enforces HTTPS before relying on HSTS.
 
@@ -120,4 +120,4 @@ Review Cloud Logging and Monitoring retention and current pricing before enablin
 
 ## Completion
 
-The original AWS Guide 8 includes Terraform snippets for AWS Lambda, Aurora, API Gateway, WAF, GuardDuty, and CloudWatch. Those snippets are intentionally not reused for GCP. The GCP monitoring Terraform and GCP-only frontend headers are implemented; completing this guide still requires a reviewed Terraform apply, configured alert destinations, and verification in the student's GCP project. The AWS deployment and defaults remain unchanged.
+The old AWS Guide 8 and its Terraform snippets are retired. The supported GCP monitoring stack and frontend headers still require a reviewed Terraform apply, configured alert destinations, and verification in your GCP project.

@@ -1,7 +1,10 @@
 project_id = "YOUR_PROJECT_ID"
 region     = "YOUR_REGION"
-groq_model = "groq/llama-3.3-70b-versatile"
-groq_api_key_secret_id = "alex-groq-api-key"
+huggingface_token_secret_id = "alex-huggingface-token"
+# To use Nscale, uncomment these and use a model ID from its catalog.
+# llm_provider           = "nscale"
+# llm_model              = "YOUR_NSCALE_MODEL_ID"
+# nscale_token_secret_id = "alex-nscale-token"
 
 agent_image_urls = {
   planner   = "YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-agents/planner:dev"

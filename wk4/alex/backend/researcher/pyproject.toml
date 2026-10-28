@@ -8,8 +8,12 @@ dependencies = [
     "fastapi>=0.116.1",
     "google-auth>=2.40.0",
     "httpx>=0.28.1",
+    "alex-gcp-agents",
     "openai-agents>=0.2.4",
     "pydantic>=2.11.7",
     "tenacity>=9.1.2",
     "uvicorn>=0.35.0",
 ]
+
+[tool.uv.sources]
+alex-gcp-agents = { path = "../gcp_agents" }

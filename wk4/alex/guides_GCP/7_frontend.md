@@ -1,6 +1,6 @@
 # Building Alex: Part 7 - Frontend and API on Google Cloud
 
-Deploy the Next.js application and FastAPI API on Cloud Run while retaining Clerk for authentication. Clerk remains the identity provider; GCP IAM secures service-to-service calls and does not replace user JWT validation. The original AWS S3/CloudFront/Lambda deployment remains unchanged.
+Deploy the Next.js application and FastAPI API on Cloud Run while retaining Clerk for authentication. Clerk remains the identity provider; GCP IAM secures service-to-service calls and does not replace user JWT validation.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ Create a Secret Manager secret named `alex-clerk-secret-key` (or the name you ch
 
 ## Step 3: Configure the GCP Terraform stack
 
-The GCP stack is separate from the AWS `terraform/7_frontend` directory:
+The supported GCP stack is in `terraform_gcp/7_frontend`; the AWS stack in `terraform/7_frontend` is retired:
 
 ```bash
 cd terraform_gcp/7_frontend
@@ -44,6 +44,14 @@ cp terraform.tfvars.example terraform.tfvars
 ```
 
 Set project, region, the existing API service account email, Cloud SQL connection name and secret ID, Layer 6 topic ID, Clerk JWKS URL and issuer, the Clerk publishable key, and the Secret Manager secret ID. `api_image_url` and `frontend_image_url` must be valid repository paths even before the images exist. `frontend_origin` should remain empty for the first deployment. Keep passwords and Clerk secret keys out of this file.
+
+After configuring `terraform.tfvars`, you can use the repository helper from the project root instead of running the image build and Terraform commands in Steps 4-5 manually:
+
+```bash
+uv run --project scripts scripts/deploy.py --project-id YOUR_PROJECT_ID --region YOUR_REGION --clerk-publishable-key pk_test_REPLACE_ME
+```
+
+The helper checks Docker and active `gcloud` credentials, creates the Artifact Registry repository, builds and pushes the API and frontend images, then applies the API/frontend Terraform stack. Review and approve each Terraform plan when prompted. It does not create the upstream database, agents, or Clerk secret; those must already be configured. Use immutable `--tag` values for repeatable releases.
 
 Initialize the independent stack and create its Artifact Registry repository:
 
@@ -97,7 +105,7 @@ terraform apply
 terraform output frontend_url
 ```
 
-Copy the exact `frontend_url` output into `frontend_origin` in `terraform.tfvars` (scheme and host only, no trailing slash) and apply again. This sets the API CORS allowlist to the frontend's exact HTTPS origin. The frontend is a Cloud Run Next.js standalone service; this avoids assuming that every Next.js route can be served from a static Cloud Storage bucket. The AWS build still defaults to static export.
+Copy the exact `frontend_url` output into `frontend_origin` in `terraform.tfvars` (scheme and host only, no trailing slash) and apply again. This sets the API CORS allowlist to the frontend's exact HTTPS origin. The frontend is a Cloud Run Next.js standalone service; this avoids assuming that every Next.js route can be served from a static Cloud Storage bucket.
 
 ## Step 6: Verify production behavior
 
@@ -122,14 +130,13 @@ Check:
 
 ## Cost and cleanup
 
-Monitor Cloud Run, load balancer/CDN, network egress, Cloud SQL, and Vertex AI charges. Delete development frontend/API services and resources when no longer needed, preserving production data and required logs:
+Monitor Cloud Run, network egress, Cloud SQL, and Vertex AI charges. Remove container images from the Artifact Registry repository before destroying the Terraform stack, then delete development frontend/API resources when no longer needed, preserving production data and required logs:
 
 ```bash
-cd terraform_gcp/7_frontend
-terraform destroy
+uv run --project scripts scripts/destroy.py
 ```
 
-This does not remove the Layer 6 Pub/Sub and agents or the Cloud SQL database.
+This removes only the Guide 7 stack. It does not remove the Layer 6 Pub/Sub and agents or the Cloud SQL database. Terraform prompts before destruction.
 
 ## Next
 

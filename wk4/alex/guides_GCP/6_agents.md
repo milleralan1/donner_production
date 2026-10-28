@@ -1,6 +1,6 @@
 # Building Alex: Part 6 - Agent Orchestra on Google Cloud
 
-Deploy the Planner, Tagger, Reporter, Charter, and Retirement agents as IAM-protected Cloud Run services, with Pub/Sub push delivery to Planner. The GCP path is additive: the existing AWS Lambda/SQS deployment remains unchanged.
+Deploy the Planner, Tagger, Reporter, Charter, and Retirement agents as IAM-protected Cloud Run services, with Pub/Sub push delivery to Planner. This is the supported deployment; AWS Lambda/SQS is retired.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ graph TB
     Planner --> Retirement[Retirement Cloud Run]
     Agents --> SQL[(Cloud SQL PostgreSQL)]
     Reporter --> Ingest[Private ingestion service]
-    Agents --> Groq[Groq API]
+    Agents --> HF[Hugging Face Inference Providers]
 ```
 
 Pub/Sub delivery is at-least-once. The Planner atomically claims pending or failed jobs in Cloud SQL; deliveries for a running job are retried without starting duplicate work, while a completed job is acknowledged. A failed job can be claimed again, and a job left running by a hard timeout can be reclaimed after its 65-minute lease expires. Repeated failures are routed to a dead-letter topic.
@@ -24,21 +24,42 @@ Pub/Sub delivery is at-least-once. The Planner atomically claims pending or fail
 - Completed Guides 1-5. The Cloud SQL instance, database schema, and private ingestion service must be ready.
 - `gcloud`, Docker, Terraform 1.5+, and `uv` installed; Docker Desktop running for image builds.
 - The `alex-api` and `alex-agents` service accounts created in Guide 5. The `alex-agents` identity must be listed in the Guide 5 stack's `runtime_service_accounts`, so it has Cloud SQL Client and database-password Secret Accessor roles.
-- A Groq model available to your account that supports the tools used by the Agents SDK, plus its API key stored in Secret Manager.
+- A provider/model combination that supports the tools and structured outputs used by the Agents SDK, plus its API token stored in Secret Manager. Hugging Face is the default; Nscale is also supported through its OpenAI-compatible endpoint.
 - A Massive API key stored in Secret Manager if Planner price updates are desired. Price lookup is optional and does not block analysis.
 
-The agents use LiteLLM's `groq/` provider. The example uses `groq/llama-3.3-70b-versatile`; verify that it remains available and supports tool calling for your account. Groq's free-tier quotas and rate limits apply and can change. The separate embedding/vector-search services continue to use Vertex AI.
+The five agents and Researcher share the LLM factory in `backend/gcp_agents/gcp_agents/huggingface_model.py`. The adjacent `llm_config.json` is the configuration source for provider endpoints, key environment-variable names, and default model IDs; this Terraform stack reads that same JSON file. The default is Hugging Face Inference Providers at `https://router.huggingface.co/v1`, with `openai/gpt-oss-120b`. To use Nscale, set `llm_provider = "nscale"`, provide `llm_model` for a model in the Nscale catalog, and set `nscale_token_secret_id` to a Secret Manager secret containing the Nscale service token. Confirm the selected model supports the needed tool calling and structured output. Inference is hosted externally, not on GCP; embeddings and vector search continue to use Vertex AI.
 
-Before applying the stack, create the Groq key in Secret Manager (if not already present) and add a version without placing the key in shell history:
+For these five Terraform-managed services, put the provider selection in `terraform_gcp/6_agents/terraform.tfvars` (HCL, not `.env`):
+
+```hcl
+llm_provider          = "nscale"
+llm_model             = "YOUR_NSCALE_MODEL_ID"
+nscale_token_secret_id = "alex-nscale-token"
+```
+
+The Terraform variables override the shared JSON defaults; you do not need to edit `llm_config.json` to select Nscale here. The JSON supplies the default provider/model when Terraform values are omitted. For the separately deployed Researcher, set `ALEX_LLM_PROVIDER=nscale` and `ALEX_LLM_MODEL=YOUR_NSCALE_MODEL_ID` in its Cloud Run environment instead.
+
+Before applying the stack, create the Hugging Face token secret in Secret Manager (if not already present) and add a version without placing the token in shell history:
 
 ```bash
 # Skip the create command if this secret already exists.
-gcloud secrets create alex-groq-api-key --replication-policy=automatic \
+gcloud secrets create alex-huggingface-token --replication-policy=automatic \
   --project YOUR_PROJECT_ID
-read -s GROQ_API_KEY
-printf '%s' "$GROQ_API_KEY" | gcloud secrets versions add alex-groq-api-key \
+read -s HF_TOKEN
+printf '%s' "$HF_TOKEN" | gcloud secrets versions add alex-huggingface-token \
   --data-file=- --project YOUR_PROJECT_ID
-unset GROQ_API_KEY
+unset HF_TOKEN
+```
+
+For Nscale, create the secret named by `nscale_token_secret_id` (default `alex-nscale-token`) and add the service token:
+
+```bash
+gcloud secrets create alex-nscale-token --replication-policy=automatic \
+  --project YOUR_PROJECT_ID
+read -s NSCALE_API_KEY
+printf '%s' "$NSCALE_API_KEY" | gcloud secrets versions add alex-nscale-token \
+  --data-file=- --project YOUR_PROJECT_ID
+unset NSCALE_API_KEY
 ```
 
 ## Step 1: Run focused local tests
@@ -58,7 +79,7 @@ The original `test_simple.py` scripts initialize the AWS database path and are n
 
 ## Step 2: Configure the Terraform stack
 
-The GCP agent stack is separate from `terraform/6_agents`:
+The GCP agent stack is in `terraform_gcp/6_agents`. The old AWS stack in `terraform/6_agents` is retired:
 
 ```bash
 cd terraform_gcp/6_agents
@@ -71,7 +92,8 @@ Edit `terraform.tfvars` with:
 - The existing `alex-agents` and `alex-api` service account emails.
 - The Cloud SQL connection name and database secret ID from `terraform_gcp/5_database` outputs.
 - The private ingestion Cloud Run service name, region, URL, and audience from Guide 3. The audience is usually the service URL.
-- The Groq model name and five Artifact Registry image URLs. Keep the image URLs under the repository created by this stack.
+- The five Artifact Registry image URLs. Keep the image URLs under the repository created by this stack.
+- Optionally, `llm_provider`, `llm_model`, and the selected provider's Secret Manager secret ID. Defaults come from the shared `llm_config.json`.
 - Optionally, the Secret Manager ID holding the Massive API key.
 
 Never put database passwords or API key values in this file. It is gitignored; Terraform state and local state backups still contain sensitive resource data and must be protected.
@@ -120,9 +142,9 @@ terraform plan
 terraform apply
 ```
 
-The stack creates five Cloud Run services, a Pub/Sub jobs topic, an authenticated push subscription to Planner, a dead-letter topic/subscription, and a dedicated push identity. It injects the Groq API key from Secret Manager and grants:
+The stack creates five Cloud Run services, a Pub/Sub jobs topic, an authenticated push subscription to Planner, a dead-letter topic/subscription, and a dedicated push identity. It injects the selected provider token from Secret Manager and grants:
 
-- The agent runtime identity Secret Manager access to the Groq key, and grants it `roles/run.invoker` on the agent and ingestion services.
+- The agent runtime identity Secret Manager access to the selected provider token, and grants it `roles/run.invoker` on the agent and ingestion services.
 - The API identity `roles/pubsub.publisher` on only the jobs topic.
 - The Pub/Sub push identity `roles/run.invoker` on Planner.
 - The Pub/Sub service agent permission to mint push identity tokens and publish to the dead-letter topic.
@@ -142,7 +164,7 @@ terraform output jobs_subscription
 terraform output dead_letter_subscription
 ```
 
-Use Cloud Run logs and Pub/Sub metrics to verify service startup, message delivery, retries, and dead-letter routing. A full analysis trigger from the application is completed with the GCP API integration in Guide 7; the current AWS API and `backend/test_full.py` still target Lambda/SQS.
+Use Cloud Run logs and Pub/Sub metrics to verify service startup, message delivery, retries, and dead-letter routing. A full analysis trigger from the application is completed with the GCP API integration in Guide 7.
 
 Once the GCP API is deployed, submit a development analysis and verify:
 
@@ -155,7 +177,7 @@ Once the GCP API is deployed, submit a development analysis and verify:
 ## Troubleshooting
 
 - **Cloud Run fails to start:** check the service role, image URL, startup probe, Cloud Run logs, and `ALEX_AGENT_ROLE`.
-- **Groq authentication, model, or rate-limit errors:** verify the Secret Manager version and access binding, model ID, account access, and current quota.
+- **LLM provider authentication, model, or rate-limit errors:** verify `llm_provider`, its matching Secret Manager secret and access binding, model/provider availability, and current quota.
 - **Database or secret access denied:** verify that the same `alex-agents` service account is listed in Guide 5's `runtime_service_accounts`; confirm the secret ID and Cloud SQL connection name.
 - **Planner cannot call another agent:** verify the service URL variables and `roles/run.invoker` binding for `alex-agents`.
 - **Reporter gets 403 from ingestion:** verify `ALEX_INGESTION_URL`, audience, and the ingestion service's invoker binding for `alex-agents`.
@@ -165,7 +187,7 @@ Once the GCP API is deployed, submit a development analysis and verify:
 
 ## Cost and cleanup
 
-Cloud SQL, Vertex AI Vector Search, and Groq usage can incur costs independently of Cloud Run; Groq's free-tier quota is limited and subject to change. Review billing and shut down resources when not actively learning. To remove this layer, first disable or destroy the subscription and agent stack:
+Cloud SQL, Vertex AI Vector Search, and the selected inference provider can incur costs independently of Cloud Run. Review GCP and provider usage; quotas and prices can change. Shut down resources when not actively learning. To remove this layer, first disable or destroy the subscription and agent stack:
 
 ```bash
 cd terraform_gcp/6_agents
@@ -181,4 +203,4 @@ This removes the Pub/Sub topics, Cloud Run services, service identity, and Artif
 
 ## Next
 
-Continue to [7_frontend.md](7_frontend.md) to migrate the API that creates jobs and publishes them to Pub/Sub.
+Continue to [7_frontend.md](7_frontend.md) to deploy the API that creates jobs and publishes them to Pub/Sub.

@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import subprocess
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -23,12 +24,15 @@ def setup_test_data():
     print("Ensuring test data exists...")
     result = subprocess.run(
         ["uv", "run", "reset_db.py", "--with-test-data", "--skip-drop"],
-        cwd="../database",
+        cwd=Path(__file__).resolve().parents[1] / "database",
         capture_output=True,
         text=True
     )
     if result.returncode != 0:
-        print(f"Warning: Could not ensure test data: {result.stderr}")
+        raise RuntimeError(
+            "Could not ensure Planner test data:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
     
     db = Database()
     
@@ -57,7 +61,7 @@ def test_planner():
     job_id = setup_test_data()
     
     test_event = {
-        "job_id": job_id
+        "job_id": str(job_id)
     }
     
     print("Testing Planner Orchestrator...")
