@@ -23,7 +23,7 @@ from src.models import Database
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv(override=True)
+load_dotenv()
 
 database = os.environ.get("DB_NAME", "alex")
 client = Database().client

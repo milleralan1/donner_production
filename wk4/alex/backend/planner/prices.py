@@ -6,7 +6,7 @@ import random
 from functools import lru_cache
 from datetime import timezone
 
-load_dotenv(override=True)
+load_dotenv()
 
 massive_api_key = os.getenv("MASSIVE_API_KEY")
 massive_plan = os.getenv("MASSIVE_PLAN")

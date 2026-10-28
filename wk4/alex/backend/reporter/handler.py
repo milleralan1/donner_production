@@ -19,7 +19,7 @@ GUARD_AGAINST_SCORE = 0.3  # Guard against score being too low
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(override=True)
+    load_dotenv()
 except ImportError:
     pass
 

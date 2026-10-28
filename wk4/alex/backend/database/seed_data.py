@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv(override=True)
+load_dotenv()
 
 client = Database().client
 

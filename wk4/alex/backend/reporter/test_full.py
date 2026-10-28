@@ -21,7 +21,7 @@ import time
 import requests
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv()
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
