@@ -20,7 +20,7 @@ class AgentTemporaryError(Exception):
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(override=True)
+    load_dotenv()
 except ImportError:
     pass
 
@@ -133,7 +133,7 @@ def handle_event(event):
     # Wrap entire handler with observability context
     with observe() as observability:
         try:
-            logger.info(f"Retirement invoked with event: {json.dumps(event)[:500]}")
+            logger.info(f"Retirement invoked with event: {json.dumps(event, default=str)[:500]}")
 
             # Parse event
             if isinstance(event, str):
