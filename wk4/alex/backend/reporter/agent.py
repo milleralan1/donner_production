@@ -115,7 +115,7 @@ async def get_market_insights(
     wrapper: RunContextWrapper[ReporterContext], symbols: List[str]
 ) -> str:
     """
-    Retrieve market insights from the GCP ingest/search service (Vertex AI Vector Search).
+    Retrieve market insights from the GCP ingest/search service (Cloud SQL pgvector).
 
     Args:
         wrapper: Context wrapper with job_id and database

@@ -49,7 +49,7 @@ printf '%s' "$NSCALE_API_KEY" | gcloud secrets versions add alex-nscale-token \
 unset NSCALE_API_KEY
 ```
 
-Grant the Researcher runtime identity access to the selected provider secret and `roles/run.invoker` on the ingestion service only. ADC is still required for authenticated calls to the private ingestion service; the ingestor separately uses Vertex AI for embeddings.
+Grant the Researcher runtime identity access to the selected provider secret and `roles/run.invoker` on the ingestion service only. ADC is still required for authenticated calls to the private ingestion service; the ingestor uses the embedding provider selected in Guide 2 and stores/searches embeddings in Cloud SQL with `pgvector`.
 
 ```bash
 gcloud iam service-accounts create alex-researcher \

@@ -27,7 +27,7 @@ Pub/Sub delivery is at-least-once. The Planner atomically claims pending or fail
 - A provider/model combination that supports the tools and structured outputs used by the Agents SDK, plus its API token stored in Secret Manager. Hugging Face is the default; Nscale is also supported through its OpenAI-compatible endpoint.
 - A Massive API key stored in Secret Manager if Planner price updates are desired. Price lookup is optional and does not block analysis.
 
-The five agents and Researcher share the LLM factory in `backend/gcp_agents/gcp_agents/huggingface_model.py`. The adjacent `llm_config.json` is the configuration source for provider endpoints, key environment-variable names, and default model IDs; this Terraform stack reads that same JSON file. The default is Hugging Face Inference Providers at `https://router.huggingface.co/v1`, with `openai/gpt-oss-120b`. To use Nscale, set `llm_provider = "nscale"`, provide `llm_model` for a model in the Nscale catalog, and set `nscale_token_secret_id` to a Secret Manager secret containing the Nscale service token. Confirm the selected model supports the needed tool calling and structured output. Inference is hosted externally, not on GCP; embeddings and vector search continue to use Vertex AI.
+The five agents and Researcher share the LLM factory in `backend/gcp_agents/gcp_agents/huggingface_model.py`. The adjacent `llm_config.json` is the configuration source for provider endpoints, key environment-variable names, and default model IDs; this Terraform stack reads that same JSON file. The default is Hugging Face Inference Providers at `https://router.huggingface.co/v1`, with `openai/gpt-oss-120b`. To use Nscale, set `llm_provider = "nscale"`, provide `llm_model` for a model in the Nscale catalog, and set `nscale_token_secret_id` to a Secret Manager secret containing the Nscale service token. Confirm the selected model supports the needed tool calling and structured output. Inference is hosted externally, not on GCP; embeddings use the provider selected in Guide 2 and semantic search uses Cloud SQL with `pgvector`.
 
 For these five Terraform-managed services, put the provider selection in `terraform_gcp/6_agents/terraform.tfvars` (HCL, not `.env`):
 
@@ -187,7 +187,7 @@ Once the GCP API is deployed, submit a development analysis and verify:
 
 ## Cost and cleanup
 
-Cloud SQL, Vertex AI Vector Search, and the selected inference provider can incur costs independently of Cloud Run. Review GCP and provider usage; quotas and prices can change. Shut down resources when not actively learning. To remove this layer, first disable or destroy the subscription and agent stack:
+Cloud SQL, the selected embedding provider, and the selected LLM provider can incur costs independently of Cloud Run. `pgvector` is an extension in Cloud SQL, not a separately billed vector endpoint. Review GCP and provider usage; quotas and prices can change. Shut down resources when not actively learning. To remove this layer, first disable or destroy the subscription and agent stack:
 
 ```bash
 cd terraform_gcp/6_agents

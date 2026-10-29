@@ -1,133 +1,145 @@
-# Building Alex: Part 3 - Ingestion and Vector Search
+# Building Alex: Part 3 - Ingestion and Semantic Search with pgvector
 
-This guide deploys the GCP ingestion stack using Cloud Run, Cloud Storage for source documents, Vertex AI for embeddings, and Vertex AI Vector Search for similarity retrieval. Vertex AI Vector Search has its own index and endpoint lifecycle and may have ongoing costs; check current pricing before deployment.
+This guide deploys the ingestion API on Cloud Run. It creates embeddings with the provider selected in Guide 2 and stores both source text and vectors in Cloud SQL for PostgreSQL using `pgvector`. No Cloud Storage bucket or Vertex AI Vector Search endpoint is required for this flow.
+
+`pgvector` is a PostgreSQL extension, not a separate Google Cloud service. Cloud SQL still has its normal instance, storage, backup, and network costs; there is no separate deployed vector-search endpoint to provision.
 
 ## Prerequisites
 
-- Completed [Guide 1](1_permissions.md) and [Guide 2](2_embeddings.md)
+- Completed Guides 1, 2, and 5, in that order
+- A running Cloud SQL PostgreSQL instance and the `alex` database
+- The `vector` extension installed in the database and migration `002_pgvector.sql` applied
+- A GCP runtime service account included in Guide 5's `runtime_service_accounts`
 - `gcloud`, Docker, and `uv`
-- A GCP runtime service account with narrowly scoped access to Vertex AI and the required storage/vector resources
-- A verified embedding model and dimension
-- The GCP dependencies installed with `uv sync`
+- An embedding model and its actual output dimension verified with Guide 2
 
 ## Architecture
 
 ```mermaid
 graph LR
-    Client -->|HTTPS| Gateway[API Gateway or authenticated Cloud Run]
-    Gateway --> Ingest[Cloud Run ingestion service]
-    Ingest -->|Embed| Vertex[Vertex AI embeddings]
-    Ingest -->|Source objects| GCS[Cloud Storage]
-    Ingest -->|Upsert vectors| Vector[Vertex AI Vector Search]
-    Search[Search service] -->|Query vector| Vertex
-    Search -->|Nearest neighbors| Vector
+    Client -->|Authenticated HTTPS| Ingest[Cloud Run ingestion and search API]
+    Ingest -->|Generate document/query embedding| Embedder[Nscale or Vertex AI]
+    Ingest -->|Store text, metadata, vector; cosine search| SQL[(Cloud SQL PostgreSQL + pgvector)]
+    Researcher[Researcher on Cloud Run] -->|Authenticated ingest/search| Ingest
 ```
 
-Cloud Storage is useful for retaining source documents and metadata; it is not itself a vector database. Vertex AI Vector Search is a managed vector service, not a drop-in replacement for the S3 Vectors API. A smaller learning deployment may instead evaluate PostgreSQL `pgvector` on Cloud SQL; compare scale, operational requirements, and costs before choosing.
+Cloud SQL stores the relational application data and the research documents/embeddings. Search uses PostgreSQL cosine distance (`<=>`) and filters by tenant in SQL. The initial implementation uses exact nearest-neighbor ranking, which avoids a separate vector service and is appropriate for a small learning corpus. If the corpus grows, benchmark query latency and evaluate a pgvector ANN index, dimensions, and Cloud SQL sizing.
 
-## Step 1: Decide access and data boundaries
+## Step 1: Install pgvector and create its table
 
-Choose whether ingestion is private (recommended for service-to-service use) or exposed through API Gateway. Use Clerk/JWT validation or another proper identity mechanism for user-facing APIs. An API key alone is not user authentication and should not be treated as protection for personal financial data.
+Cloud SQL permits extension creation only to a user with the `cloudsqlsuperuser` role. In Cloud SQL Studio, connect to the `alex` database as the `postgres` user and run:
 
-Store only the data needed for retrieval. Keep user-specific data isolated in metadata and enforce authorization on every search; vector metadata filters are not a substitute for application-level access checks.
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
 
-## Step 2: Create GCP infrastructure
-
-Provision these GCP resources using the Google Cloud Console/CLI. The old AWS `terraform/3_ingestion` module is retired and must not be applied.
-
-Create a private Cloud Storage bucket with uniform bucket-level access. Use a globally unique name and your chosen region:
+Then connect with the configured migration/database user and apply migrations from `backend/database`:
 
 ```bash
-gcloud storage buckets create gs://YOUR_UNIQUE_BUCKET --project YOUR_PROJECT_ID --location YOUR_REGION --uniform-bucket-level-access --public-access-prevention
+uv sync --extra gcp
+uv run run_migrations.py
 ```
 
-In Google Cloud Console, open **Vertex AI → Vector Search → Indexes** and create a streaming index. Set its dimension to the verified Guide 2 embedding dimension, choose the distance measure and index settings for your workload, then create a matching index endpoint and deploy the index to it. A deployed Vector Search endpoint can incur ongoing costs. Record the index ID, endpoint ID, deployed index ID, and public endpoint domain shown by the console. Do not expose the endpoint without authentication.
+Migration `002_pgvector.sql` creates `research_documents` and a B-tree index on `tenant_id`. The app database user defaults to `alex_app`; if you changed `database_user` in Guide 5, update the migration's `GRANT` target accordingly before applying it. Verify the table and extension in Cloud SQL Studio:
 
-Guide 3 provisions these model-dependent vector resources in the console and deploys the service with `gcloud`; the AWS Terraform module is retired. Do not put API keys or service account credentials in source control.
+```sql
+SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
+SELECT column_name, udt_name FROM information_schema.columns
+WHERE table_name = 'research_documents';
+```
 
-## Step 3: Port and deploy the ingestion code
+## Step 2: Configure ingestion
 
-The GCP implementation uses `gcp_ingestion.py` with the Vertex AI embedding client from Guide 2, Cloud Storage for source JSON, and Vertex AI Vector Search for embeddings. `gcp_service.py` exposes an HTTP API designed for authenticated Cloud Run service-to-service use.
+Use the same embedding provider, model, and output dimension for both document ingestion and query search. For Nscale, configure the non-secret settings:
 
-Set the non-secret Cloud Run configuration:
-
-```text
-GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
-GOOGLE_CLOUD_REGION=YOUR_REGION
-GOOGLE_CLOUD_LOCATION=YOUR_VERTEX_EMBEDDING_LOCATION
-EMBEDDING_MODEL=YOUR_SUPPORTED_VERTEX_EMBEDDING_MODEL
+```dotenv
+EMBEDDING_PROVIDER=nscale
+EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B
 EMBEDDING_OUTPUT_DIMENSIONALITY=YOUR_VERIFIED_DIMENSION
-DOCUMENT_BUCKET=YOUR_PRIVATE_GCS_BUCKET
-VECTOR_INDEX_ID=YOUR_VERTEX_VECTOR_INDEX_ID
-VECTOR_INDEX_ENDPOINT_ID=YOUR_VERTEX_VECTOR_INDEX_ENDPOINT_ID
-VECTOR_DEPLOYED_INDEX_ID=YOUR_DEPLOYED_INDEX_ID
-VECTOR_PUBLIC_ENDPOINT_DOMAIN=YOUR_PUBLIC_VECTOR_ENDPOINT_DOMAIN
+NSCALE_BASE_URL=https://inference.api.nscale.com/v1
+DATABASE_BACKEND=cloud_sql
+CLOUD_SQL_CONNECTION_NAME=PROJECT_ID:REGION:INSTANCE_NAME
+CLOUD_SQL_IP_TYPE=PUBLIC
+DB_NAME=alex
+DB_USER=alex_app
 ```
 
-The GCP API stores source documents at `tenant_id/document_id.json` and stores only the tenant filter and embedding in the vector index. Search always submits a `tenant_id` namespace filter and verifies the source object's tenant before returning it. Pass `tenant_id` only from a trusted caller that has already validated the user's Clerk identity; do not let an unauthenticated browser choose it. Keep the Cloud Run service private and grant `roles/run.invoker` only to the intended API or researcher service account. Cloud Run IAM authenticates the calling workload, not the end user, so the upstream service must enforce user authentication and derive the tenant ID from the verified Clerk token.
+Also provide `NSCALE_API_KEY` and `DB_PASSWORD` locally through the ignored `.env` file. Never commit credentials. In Cloud Run, inject both secrets from Secret Manager. The Cloud SQL connection name is available from the Cloud SQL instance details or Guide 5 Terraform outputs.
 
-The endpoints are `POST /ingest` with `{"text":"...","tenant_id":"...","metadata":{}}`, `POST /search` with `{"query":"...","tenant_id":"...","limit":5}`, and `GET /healthz`. Requests and metadata are validated; errors do not return raw provider error details.
+For Vertex AI embeddings instead, set `EMBEDDING_PROVIDER=vertex_ai`, configure the supported embedding model and `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`, and grant model invocation access to the runtime identity. The Cloud SQL settings remain the same.
 
-Port and deploy the service so it:
+## Step 3: Run local tests
 
-1. Validates and normalizes the request.
-2. Calls Vertex AI to create an embedding.
-3. Stores the source document in Cloud Storage where required.
-4. Upserts vector ID, vector values, and safe metadata to the selected vector index.
-5. Returns a stable document ID and explicit errors.
-
-Build the GCP container with Cloud Build and deploy it to Cloud Run. Provision the bucket, Vector Search index and endpoint/deployed index, service identity, and IAM bindings as described in Step 2. AWS Lambda zip packaging is retired and is not used.
+From `backend/ingest`, run the offline tests. They use mocked embeddings and a fake database client and do not require GCP or Nscale credentials:
 
 ```bash
-cd backend/ingest
 uv sync
 uv run test_vertex_embeddings.py
+uv run test_nscale_embeddings.py
+uv run test_embedding_client.py
 uv run test_gcp_ingestion.py
 ```
 
-Create a Docker Artifact Registry repository if one does not already exist, then build and push the image:
+To check actual Nscale model access and output dimension, make one live request:
 
 ```bash
-# Run only if the repository does not already exist:
-gcloud artifacts repositories create alex-ingestion --repository-format=docker --location YOUR_REGION --project YOUR_PROJECT_ID
-gcloud auth configure-docker YOUR_REGION-docker.pkg.dev
-docker build --platform linux/amd64 -f Dockerfile.gcp -t YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-ingestion/ingestion:dev .
+uv run --env-file .env test_nscale_embeddings_live.py
+```
+
+This calls Nscale and may consume Nscale credits. For a live database check, the Cloud SQL instance must be running; authenticate locally with ADC and run the database connectivity check from Guide 5. End-to-end ingest/search needs both a valid Nscale token and Cloud SQL access.
+
+## Step 4: Build and deploy the API
+
+Include `alex-ingestion` in the Cloud SQL stack's `runtime_service_accounts` so it receives `roles/cloudsql.client` and access to the database-password secret. Create the service account if needed:
+
+```bash
+gcloud iam service-accounts create alex-ingestion \
+  --project YOUR_PROJECT_ID \
+  --display-name "Alex ingestion runtime"
+```
+
+Build from the `backend` directory because the image installs the shared `alex-database` package:
+
+```bash
+cd backend
+docker build --platform linux/amd64 -f ingest/Dockerfile.gcp \
+  -t YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-ingestion/ingestion:dev .
 docker push YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-ingestion/ingestion:dev
 ```
 
-Create a dedicated runtime service account and grant it access to the bucket and Vertex AI. Deploy the image as a private Cloud Run service with the settings above. Configure Google API access through ADC; do not create service account keys. Grant `roles/run.invoker` only to the API and Researcher identities that need ingestion/search. Public Vector Search endpoints still require authenticated requests from the service; restrict egress and endpoint access according to the chosen network design.
+Deploy the service privately and attach its Cloud SQL instance. Create `alex-nscale-token` in Secret Manager first if it does not exist, and grant the runtime service account access to that secret:
 
 ```bash
-gcloud iam service-accounts create alex-ingestion --project YOUR_PROJECT_ID --display-name "Alex ingestion runtime"
-gcloud storage buckets add-iam-policy-binding gs://YOUR_UNIQUE_BUCKET --member="serviceAccount:alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/storage.objectUser"
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/aiplatform.user"
-gcloud run deploy alex-ingestion --image YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-ingestion/ingestion:dev --region YOUR_REGION --project YOUR_PROJECT_ID --service-account alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com --no-allow-unauthenticated --set-env-vars GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GOOGLE_CLOUD_REGION=YOUR_REGION,GOOGLE_CLOUD_LOCATION=YOUR_VERTEX_EMBEDDING_LOCATION,EMBEDDING_MODEL=YOUR_SUPPORTED_VERTEX_EMBEDDING_MODEL,EMBEDDING_OUTPUT_DIMENSIONALITY=YOUR_VERIFIED_DIMENSION,DOCUMENT_BUCKET=YOUR_UNIQUE_BUCKET,VECTOR_INDEX_ID=YOUR_VECTOR_INDEX_ID,VECTOR_INDEX_ENDPOINT_ID=YOUR_VECTOR_INDEX_ENDPOINT_ID,VECTOR_DEPLOYED_INDEX_ID=YOUR_DEPLOYED_INDEX_ID,VECTOR_PUBLIC_ENDPOINT_DOMAIN=YOUR_PUBLIC_ENDPOINT_DOMAIN
+gcloud run deploy alex-ingestion \
+  --image YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/alex-ingestion/ingestion:dev \
+  --region YOUR_REGION \
+  --project YOUR_PROJECT_ID \
+  --service-account alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+  --add-cloudsql-instances YOUR_PROJECT_ID:YOUR_REGION:YOUR_INSTANCE_NAME \
+  --no-allow-unauthenticated \
+  --set-env-vars EMBEDDING_PROVIDER=nscale,EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B,EMBEDDING_OUTPUT_DIMENSIONALITY=YOUR_VERIFIED_DIMENSION,NSCALE_BASE_URL=https://inference.api.nscale.com/v1,DATABASE_BACKEND=cloud_sql,CLOUD_SQL_CONNECTION_NAME=YOUR_PROJECT_ID:YOUR_REGION:YOUR_INSTANCE_NAME,CLOUD_SQL_IP_TYPE=PUBLIC,DB_NAME=alex,DB_USER=alex_app \
+  --set-secrets NSCALE_API_KEY=alex-nscale-token:latest,DB_PASSWORD=alex-cloud-sql-password:latest
 ```
 
-## Step 4: Configure and test
+Keep the service private. Grant `roles/run.invoker` only to the API and Researcher identities that need it. Cloud Run IAM authenticates the calling workload; the upstream API must still authenticate the user and derive the tenant ID from the verified Clerk identity.
 
-Use the Cloud Run service identity for Google Cloud API authentication. These integration settings are resource identifiers, not secrets. If future processing adds API credentials, store them in Secret Manager and grant access only to the service identity.
+## Step 5: Verify ingestion and tenant-scoped search
 
-Test in stages:
+1. Invoke `GET /healthz`.
+2. Send a short document to `POST /ingest`; verify its row and vector exist in `research_documents`.
+3. Send a related query to `POST /search` with the same tenant and confirm relevant results.
+4. Search as another tenant and confirm the first tenant's documents are not returned.
+5. Confirm unauthenticated callers cannot invoke Cloud Run and no secrets, raw vectors, or sensitive financial content are logged.
 
-1. Invoke `/healthz` and confirm the service starts.
-2. Submit a document through `/ingest`; confirm the source object exists under its tenant prefix and the vector was upserted.
-3. Query through `/search` with the same tenant and embedding model and confirm relevant results.
-4. Search using a different tenant ID and confirm no original tenant document is returned.
-5. Confirm unauthenticated requests cannot invoke the private Cloud Run service and that the upstream identity layer never trusts a browser-supplied tenant ID.
+The endpoints are `POST /ingest` with `{"text":"...","tenant_id":"...","metadata":{}}`, `POST /search` with `{"query":"...","tenant_id":"...","limit":5}`, and `GET /healthz`.
 
-Do not expose raw embeddings, personal metadata, or service credentials in logs.
+## Troubleshooting and costs
 
-## Troubleshooting
-
-- **Permission denied:** identify the Cloud Run service account and grant only the missing resource permission.
-- **Dimension mismatch:** compare the model's actual output dimension to the index configuration.
-- **No search results:** verify index deployment state, vector IDs, namespace/filter rules, and that ingestion and search use the same model.
-- **Unexpected costs:** inspect Vertex AI Vector Search index/endpoint provisioning and Cloud Run usage; delete unused billable resources.
-
-## Cleanup
-
-Delete or undeploy the vector index endpoint and other billable resources when finished, taking care not to delete production data. Cloud Storage objects may persist after service deletion; apply retention and deletion policies intentionally.
+- **`vector` type or extension missing:** install `vector` in the `alex` database as the Cloud SQL `postgres` user, then rerun the migration.
+- **Permission denied:** confirm the runtime identity has `roles/cloudsql.client`, the DB user/secret are correct, and the migration granted table access to that user.
+- **Dimension mismatch:** ensure Nscale/Vertex returns the same dimension configured in `EMBEDDING_OUTPUT_DIMENSIONALITY` for both ingestion and query.
+- **Slow search:** the current query computes exact cosine distance over that tenant's rows. Check Cloud SQL query performance and corpus size before selecting an ANN index or larger instance.
+- **Unexpected costs:** review Cloud SQL instance, storage, backup, and network charges separately from Nscale inference credits or Vertex AI embedding charges.
 
 ## Next
 

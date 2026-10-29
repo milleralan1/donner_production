@@ -15,13 +15,12 @@ graph TB
     Planner --> Reporter[Reporter]
     Planner --> Charter[Charter]
     Planner --> Retirement[Retirement]
-    Agents --> SQL[(Cloud SQL for PostgreSQL)]
-    Reporter --> Vector[Vertex AI Vector Search]
+    Agents --> SQL[(Cloud SQL for PostgreSQL + pgvector)]
+    Reporter --> SQL
     Researcher[Researcher on Cloud Run] -->|Text generation| LLM[Shared LLM provider<br/>HF default; Nscale optional]
     Researcher -->|Store research| Ingest[Cloud Run ingestion]
-    Ingest -->|Embedding| Vertex
-    Ingest -->|Documents| GCS[Cloud Storage]
-    Ingest --> Vector
+    Ingest -->|Embedding| Embedder[Nscale or Vertex AI]
+    Ingest -->|Text, metadata, vectors| SQL
     Scheduler[Cloud Scheduler] -->|OIDC| Researcher
     Secrets[Secret Manager] -.-> API
     Secrets -.-> Agents
@@ -32,9 +31,9 @@ graph TB
 | AWS reference | Google Cloud target | Notes |
 |---|---|---|
 | IAM users/groups and roles | Cloud IAM users/groups and service accounts | Use workload identity where possible; avoid long-lived keys. |
-| SageMaker embedding endpoint | Vertex AI embedding API or a deployed Vertex AI endpoint | A managed model API usually avoids endpoint provisioning; verify model dimensions and billing. |
-| S3 Vectors | Vertex AI Vector Search | Not API-compatible; provisioned index/endpoint costs and lifecycle differ. Cloud SQL `pgvector` is another option for smaller workloads. |
-| S3 document bucket | Cloud Storage | Store source documents separately from vectors. |
+| SageMaker embedding endpoint | Nscale or Vertex AI embedding API | Verify model dimensions and provider billing. Embedding generation is separate from vector storage/search. |
+| S3 Vectors | Cloud SQL PostgreSQL with `pgvector` | Vectors, research text, metadata, and relational data share Cloud SQL. No separately provisioned vector endpoint. |
+| S3 document bucket | Cloud SQL PostgreSQL | The current research-ingestion flow stores document text and metadata alongside vectors. |
 | Lambda / API Gateway | Cloud Run services; API Gateway optional | Keep APIs authenticated and validate Clerk JWTs in application code. |
 | App Runner | Cloud Run service | Containerized HTTP application. |
 | ECR | Artifact Registry | Store pinned container images. |
@@ -60,10 +59,10 @@ graph TB
 Follow the GCP deployment guides in this order:
 
 1. Project, IAM, APIs, and billing alerts
-2. Vertex AI embedding model selection and validation
-3. Cloud Storage, vector index, ingestion and search services
-4. Researcher Cloud Run service and optional Cloud Scheduler job
-5. Cloud SQL database and migrations
+2. Nscale or Vertex AI embedding model selection and validation
+3. Cloud SQL database, pgvector extension, and migrations
+4. Ingestion and semantic search on Cloud Run
+5. Researcher Cloud Run service and optional Cloud Scheduler job
 6. Agent Cloud Run services, Pub/Sub, and dead-letter handling
 7. API and frontend hosting
 8. Monitoring, security controls, and guardrails
@@ -72,4 +71,4 @@ Keep Terraform state isolated per stage and protect it. Verify `terraform plan` 
 
 ## Cost considerations
 
-The most material differences are likely Cloud SQL's running-instance charge, Vertex AI Vector Search's deployed-index/endpoint costs, model token/embedding usage, Cloud Run minimum instances, network egress, and Cloud Logging retention. Pricing and free tiers change; check current regional pricing and set billing alerts rather than copying AWS estimates.
+The most material differences are likely Cloud SQL's running-instance charge, model token/embedding usage, Cloud Run minimum instances, network egress, and Cloud Logging retention. `pgvector` runs inside Cloud SQL and has no separate managed endpoint charge. Pricing and free tiers change; check current regional pricing and set billing alerts rather than copying AWS estimates.

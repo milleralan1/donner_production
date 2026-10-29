@@ -7,8 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8080
 
 WORKDIR /app
-COPY pyproject.toml uv.lock ./
+COPY ingest/pyproject.toml ingest/uv.lock /app/ingest/
+COPY database/ /app/database/
+WORKDIR /app/ingest
 RUN uv sync --frozen --no-install-project --no-dev
-COPY vertex_embeddings.py gcp_ingestion.py gcp_service.py ./
+COPY ingest/vertex_embeddings.py ingest/nscale_embeddings.py ingest/embedding_client.py ingest/gcp_ingestion.py ingest/gcp_service.py ./
 
-CMD ["/app/.venv/bin/uvicorn", "gcp_service:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/ingest/.venv/bin/uvicorn", "gcp_service:app", "--host", "0.0.0.0", "--port", "8080"]

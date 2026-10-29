@@ -3,9 +3,13 @@ name = "alex-ingest"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "alex-database",
     "fastapi>=0.116.1",
     "google-auth>=2.40.0",
-    "google-cloud-storage>=3.5.0",
     "google-genai>=1.52.0",
+    "openai>=3.41.0",
     "uvicorn>=0.35.0",
 ]
+
+[tool.uv.sources]
+alex-database = { path = "../database", editable = true }

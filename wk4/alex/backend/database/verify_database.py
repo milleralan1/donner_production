@@ -16,10 +16,10 @@ Note: JSONB values are stored as floats (100.0) not strings ('100')
 
 import os
 import sys
-import json
 
 sys.stdout.reconfigure(encoding="utf-8")
 from src.models import Database
+from seed_pgvector import SEED_DOCUMENTS, SEED_SOURCE, SEED_TENANT_ID
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -29,13 +29,13 @@ database = os.environ.get("DB_NAME", "alex")
 client = Database().client
 verification_errors = []
 
-def execute_query(sql, description):
+def execute_query(sql, description, parameters=None) -> list[dict] | None:
     """Execute a query and return results"""
     print(f"\n{description}")
     print("-" * 50)
     
     try:
-        return client.query(sql)
+        return client.query(sql, parameters)
     except Exception as e:
         print(f"❌ Error: {e}")
         verification_errors.append(str(e))
@@ -186,8 +186,114 @@ def main():
     
     if response:
         print(f"\n✅ Found {len(response)} custom indexes")
-    
-    # 7. Check triggers exist
+
+    # 7. Verify pgvector installation, schema, data, and cosine operator
+    extension = execute_query(
+        "SELECT extversion FROM pg_extension WHERE extname = 'vector'",
+        "🧩 PGVECTOR EXTENSION",
+    )
+    if extension and extension[0].get("extversion"):
+        print(f"✅ pgvector extension installed (version {extension[0]['extversion']})")
+    else:
+        verification_errors.append("pgvector extension is not installed")
+        print("❌ pgvector extension is missing")
+
+    vector_column = execute_query(
+        """
+        SELECT udt_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'research_documents'
+          AND column_name = 'embedding'
+        """,
+        "🧱 PGVECTOR COLUMN",
+    )
+    if vector_column and vector_column[0].get("udt_name") == "vector":
+        print("✅ research_documents.embedding uses the vector type")
+    else:
+        verification_errors.append(
+            "research_documents.embedding vector column is missing"
+        )
+        print("❌ research_documents.embedding vector column is missing")
+
+    vector_stats = execute_query(
+        """
+        SELECT COUNT(*) AS count,
+               MIN(vector_dims(embedding)) AS min_dimension,
+               MAX(vector_dims(embedding)) AS max_dimension
+        FROM research_documents
+        """,
+        "📐 PGVECTOR DATA AND DIMENSIONS",
+    )
+    if vector_stats:
+        record = vector_stats[0]
+        count = record["count"]
+        min_dimension = record["min_dimension"]
+        max_dimension = record["max_dimension"]
+        print(
+            f"Found {count} vectors; dimensions range from "
+            f"{min_dimension} to {max_dimension}"
+        )
+        if not count:
+            verification_errors.append("research_documents contains no vectors")
+        elif min_dimension != max_dimension:
+            verification_errors.append(
+                "research_documents contains inconsistent vector dimensions"
+            )
+
+        configured_dimension = os.environ.get("EMBEDDING_OUTPUT_DIMENSIONALITY")
+        if configured_dimension:
+            try:
+                expected_dimension = int(configured_dimension)
+            except ValueError:
+                verification_errors.append(
+                    "EMBEDDING_OUTPUT_DIMENSIONALITY must be a positive integer"
+                )
+            else:
+                if min_dimension != expected_dimension or max_dimension != expected_dimension:
+                    verification_errors.append(
+                        "stored vector dimensions do not match "
+                        "EMBEDDING_OUTPUT_DIMENSIONALITY"
+                    )
+
+    seed_count = execute_query(
+        """
+        SELECT COUNT(*) AS count
+        FROM research_documents
+        WHERE tenant_id = :tenant_id
+          AND metadata->>'seed_source' = :seed_source
+        """,
+        "🌱 PGVECTOR SEED DATA",
+        {"tenant_id": SEED_TENANT_ID, "seed_source": SEED_SOURCE},
+    )
+    if seed_count:
+        count = seed_count[0]["count"]
+        print(f"Found {count}/{len(SEED_DOCUMENTS)} pgvector smoke-test documents")
+        if count != len(SEED_DOCUMENTS):
+            verification_errors.append("pgvector smoke-test seed data is incomplete")
+
+    distance = execute_query(
+        """
+        SELECT embedding <=> embedding AS self_distance
+        FROM research_documents
+        ORDER BY id
+        LIMIT 1
+        """,
+        "🔎 PGVECTOR COSINE-DISTANCE CHECK",
+    )
+    if distance:
+        self_distance = float(distance[0]["self_distance"])
+        if abs(self_distance) <= 1e-6:
+            print("✅ cosine-distance operator returns zero for a vector and itself")
+        else:
+            verification_errors.append(
+                f"pgvector self-distance should be zero, got {self_distance}"
+            )
+            print(f"❌ unexpected pgvector self-distance: {self_distance}")
+    elif distance == []:
+        verification_errors.append("cosine-distance check found no vectors")
+
+    # 8. Check triggers exist
     response = execute_query(
         """
         SELECT trigger_name, event_object_table

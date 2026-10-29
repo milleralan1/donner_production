@@ -3,6 +3,7 @@ region                  = "YOUR_REGION"
 runtime_service_accounts = [
   "alex-api@YOUR_PROJECT_ID.iam.gserviceaccount.com",
   "alex-agents@YOUR_PROJECT_ID.iam.gserviceaccount.com",
+  "alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com",
 ]
 
 # Keep this true unless the runtime has a configured VPC path to a private IP.

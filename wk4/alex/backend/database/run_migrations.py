@@ -16,8 +16,6 @@ with open("migrations/001_schema.sql") as f:
 
 # Define statements in order (since splitting is complex)
 statements = [
-    # Extension
-    'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"',
     # Tables
     """CREATE TABLE IF NOT EXISTS users (
         clerk_user_id VARCHAR(255) PRIMARY KEY,
@@ -102,6 +100,14 @@ statements = [
     """CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs
         FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
 ]
+
+# The pgvector migration contains simple statements without procedural blocks.
+with open("migrations/002_pgvector.sql") as f:
+    statements.extend(
+        statement.strip()
+        for statement in f.read().split(";")
+        if statement.strip()
+    )
 
 print("🚀 Running database migrations...")
 print("=" * 50)

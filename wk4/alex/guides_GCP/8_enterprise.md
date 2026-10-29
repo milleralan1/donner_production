@@ -6,7 +6,7 @@ This final guide covers Alex's scalability, security, monitoring, guardrails, ex
 
 Cloud Run scales stateless services based on demand; set maximum instances, concurrency, CPU/memory, request timeouts, and minimum instances based on measured load. Use Cloud Run Jobs for bounded batch work. Pub/Sub decouples requests from agent processing and supports retries, but delivery is at-least-once, so handlers must be idempotent.
 
-Cloud SQL and Vertex AI Vector Search have capacity and cost behavior distinct from Aurora Serverless and S3 Vectors. Load-test in a non-production project, watch database connection limits and model quotas, and increase capacity only after identifying the bottleneck. Use Cloud Armor with an external Application Load Balancer where appropriate; API Gateway alone should not be described as a complete DDoS/WAF control.
+Cloud SQL with `pgvector` has capacity and cost behavior distinct from Aurora Serverless and S3 Vectors. Load-test in a non-production project, watch database connection limits and model quotas, and increase capacity only after identifying the bottleneck. Use Cloud Armor with an external Application Load Balancer where appropriate; API Gateway alone should not be described as a complete DDoS/WAF control.
 
 ## 2. Apply defense in depth
 

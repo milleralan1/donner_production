@@ -8,189 +8,147 @@ from gcp_ingestion import GCPIngestionService
 from gcp_service import create_app
 
 
-class FakeBlob:
-    def __init__(self, name, bucket):
-        self.name = name
-        self.bucket = bucket
-        self.payload = None
-        self.deleted = False
-
-    def upload_from_string(self, data, content_type):
-        self.payload = data
-        self.bucket.documents[self.name] = data
-        self.content_type = content_type
-
-    def delete(self):
-        self.deleted = True
-        self.bucket.documents.pop(self.name, None)
-
-    def exists(self):
-        return self.name in self.bucket.documents
-
-    def download_as_text(self):
-        return self.bucket.documents[self.name]
-
-
-class FakeBucket:
-    def __init__(self):
-        self.documents = {}
-
-    def blob(self, name):
-        return FakeBlob(name, self)
-
-
-class FakeStorage:
-    def __init__(self):
-        self.test_bucket = FakeBucket()
-
-    def bucket(self, name):
-        return self.test_bucket
-
-
 class FakeEmbeddingClient:
     def __init__(self):
         self.calls = []
+        self.result = [0.1, 0.2, 0.3]
 
     def embed(self, text, task_type):
         self.calls.append((text, task_type))
-        return [0.1, 0.2, 0.3]
+        return self.result
 
 
-class FakeResponse:
-    status_code = 200
-
-    def __init__(self, payload):
-        self.payload = payload
-
-    def json(self):
-        return self.payload
-
-
-class FakeAuthorizedSession:
+class FakeDatabaseClient:
     def __init__(self):
-        self.calls = []
-        self.response = FakeResponse({})
+        self.inserts = []
+        self.queries = []
+        self.query_rows = [{"id": "document-123"}]
+        self.insert_result = "document-123"
 
-    def post(self, url, json, timeout):
-        self.calls.append((url, json, timeout))
-        return self.response
+    def insert(self, table, data, returning):
+        self.inserts.append((table, data, returning))
+        return self.insert_result
+
+    def query(self, sql, parameters):
+        self.queries.append((sql, parameters))
+        return self.query_rows
+
+
+class FakeDatabase:
+    def __init__(self):
+        self.client = FakeDatabaseClient()
 
 
 class GCPIngestionServiceTests(unittest.TestCase):
     def setUp(self):
         self.embedding = FakeEmbeddingClient()
-        self.storage = FakeStorage()
-        self.session = FakeAuthorizedSession()
+        self.database = FakeDatabase()
         self.service = GCPIngestionService(
             embedding_client=self.embedding,
-            storage_client=self.storage,
-            authorized_session=self.session,
-            project="alex-project",
-            region="us-central1",
+            database=self.database,
             embedding_dimension=3,
-            bucket_name="alex-documents",
-            index_id="index-123",
-            index_endpoint_id="endpoint-123",
-            deployed_index_id="deployed-123",
-            public_endpoint_domain="123.us-central1-456.vdb.vertexai.goog",
         )
 
-    def test_ingest_persists_source_and_upserts_tenant_restricted_vector(self):
+    def test_ingest_stores_document_and_embedding_in_pgvector_table(self):
         document_id = self.service.ingest(
             "Market update", "tenant_1", {"ticker": "ABC"}
         )
 
-        object_key = f"tenant_1/{document_id}.json"
-        source = json.loads(self.storage.test_bucket.documents[object_key])
-        self.assertEqual(source["text"], "Market update")
-        self.assertEqual(source["metadata"], {"ticker": "ABC"})
+        self.assertEqual(document_id, "document-123")
+        sql, parameters = self.database.client.queries[0]
+        self.assertIn("INSERT INTO research_documents", sql)
+        self.assertIn("CAST(:metadata AS jsonb)", sql)
+        self.assertIn("CAST(:embedding AS vector)", sql)
+        self.assertEqual(parameters["tenant_id"], "tenant_1")
+        self.assertEqual(parameters["content"], "Market update")
+        self.assertEqual(json.loads(parameters["metadata"]), {"ticker": "ABC"})
+        self.assertEqual(json.loads(parameters["embedding"]), [0.1, 0.2, 0.3])
         self.assertEqual(self.embedding.calls[0][1], "RETRIEVAL_DOCUMENT")
 
-        url, request, timeout = self.session.calls[0]
-        self.assertTrue(url.endswith("/indexes/index-123:upsertDatapoints"))
-        datapoint = request["datapoints"][0]
-        self.assertEqual(datapoint["datapointId"], document_id)
-        self.assertEqual(datapoint["restricts"][0]["allowList"], ["tenant_1"])
-        self.assertEqual(timeout, 30)
-
-    def test_search_filters_by_tenant_and_loads_document_from_storage(self):
-        document_id = self.service.ingest("Market update", "tenant_1")
-        self.session.response = FakeResponse(
+    def test_search_runs_cosine_query_scoped_to_tenant(self):
+        self.database.client.query_rows = [
             {
-                "nearestNeighbors": [
-                    {
-                        "neighbors": [
-                            {
-                                "datapoint": {"datapointId": document_id},
-                                "distance": 0.2,
-                            }
-                        ]
-                    }
-                ]
+                "id": "document-123",
+                "content": "Market update",
+                "metadata": {"ticker": "ABC"},
+                "distance": 0.2,
             }
-        )
+        ]
 
         matches = self.service.search("market update", "tenant_1")
 
-        self.assertEqual(matches[0]["id"], document_id)
-        self.assertEqual(matches[0]["text"], "Market update")
+        self.assertEqual(
+            matches,
+            [
+                {
+                    "id": "document-123",
+                    "distance": 0.2,
+                    "text": "Market update",
+                    "metadata": {"ticker": "ABC"},
+                }
+            ],
+        )
         self.assertEqual(self.embedding.calls[-1][1], "RETRIEVAL_QUERY")
-        _, request, _ = self.session.calls[-1]
-        query = request["queries"][0]
-        self.assertEqual(query["datapoint"]["restricts"][0]["allowList"], ["tenant_1"])
-        self.assertEqual(query["neighborCount"], 5)
+        sql, parameters = self.database.client.queries[-1]
+        self.assertIn("embedding <=> CAST(:embedding AS vector)", sql)
+        self.assertIn("WHERE tenant_id = :tenant_id", sql)
+        self.assertEqual(parameters["tenant_id"], "tenant_1")
+        self.assertEqual(json.loads(parameters["embedding"]), [0.1, 0.2, 0.3])
+        self.assertEqual(parameters["limit"], 5)
 
-    def test_search_drops_missing_documents_and_rejects_invalid_limit(self):
-        self.session.response = FakeResponse(
-            {"nearestNeighbors": [{"neighbors": [
-                {"datapoint": {"datapointId": "not-stored"}, "distance": 0.3}
-            ]}]}
-        )
-        self.assertEqual(self.service.search("query", "tenant_1"), [])
+    def test_search_decodes_json_metadata_and_drops_invalid_distances(self):
+        self.database.client.query_rows = [
+            {
+                "id": "document-123",
+                "content": "Market update",
+                "metadata": '{"ticker":"ABC"}',
+                "distance": 0.2,
+            },
+            {
+                "id": "invalid",
+                "content": "Invalid result",
+                "metadata": "{}",
+                "distance": float("nan"),
+            },
+        ]
 
-        with self.assertRaisesRegex(ValueError, "limit"):
-            self.service.search("query", "tenant_1", limit=101)
+        matches = self.service.search("market update", "tenant_1")
 
-    def test_search_does_not_return_another_tenants_document(self):
-        self.service.ingest("Private market update", "tenant_2")
-        document_id = next(
-            name.split("/")[-1].removesuffix(".json")
-            for name in self.storage.test_bucket.documents
-        )
-        self.session.response = FakeResponse(
-            {"nearestNeighbors": [{"neighbors": [
-                {"datapoint": {"datapointId": document_id}, "distance": 0.3}
-            ]}]}
-        )
-
-        self.assertEqual(self.service.search("query", "tenant_1"), [])
-
-    def test_failed_vector_upsert_removes_uploaded_document(self):
-        self.session.response = FakeResponse({})
-        self.session.response.status_code = 500
-
-        with self.assertRaisesRegex(RuntimeError, "HTTP 500"):
-            self.service.ingest("Market update", "tenant_1")
-        self.assertEqual(self.storage.test_bucket.documents, {})
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["metadata"], {"ticker": "ABC"})
 
     def test_ingest_rejects_embedding_dimension_mismatch(self):
-        self.embedding.embed = Mock(return_value=[0.1, 0.2])
+        self.embedding.result = [0.1, 0.2]
 
         with self.assertRaisesRegex(ValueError, "dimension mismatch"):
             self.service.ingest("Market update", "tenant_1")
-        self.assertEqual(self.session.calls, [])
-        self.assertEqual(self.storage.test_bucket.documents, {})
+        self.assertEqual(self.database.client.inserts, [])
+
+    def test_search_rejects_embedding_dimension_mismatch(self):
+        self.embedding.result = [0.1, 0.2]
+
+        with self.assertRaisesRegex(ValueError, "dimension mismatch"):
+            self.service.search("Market update", "tenant_1")
+        self.assertEqual(self.database.client.queries, [])
 
     def test_ingest_rejects_non_json_metadata(self):
         with self.assertRaisesRegex(ValueError, "valid JSON"):
             self.service.ingest(
                 "Market update", "tenant_1", {"invalid": float("nan")}
             )
+        self.assertEqual(self.database.client.inserts, [])
 
-    def test_search_rejects_non_vertex_endpoint_domain(self):
-        self.service.public_endpoint_domain = "https://example.com"
-        with self.assertRaisesRegex(ValueError, "Vertex AI Vector Search"):
-            self.service._search_url()
+    def test_ingest_rejects_invalid_tenant_and_blank_text(self):
+        with self.assertRaisesRegex(ValueError, "tenant_id"):
+            self.service.ingest("Market update", "tenant with spaces")
+        with self.assertRaisesRegex(ValueError, "non-empty"):
+            self.service.ingest(" ", "tenant_1")
+        self.assertEqual(self.database.client.inserts, [])
+
+    def test_search_rejects_invalid_limit(self):
+        with self.assertRaisesRegex(ValueError, "limit"):
+            self.service.search("query", "tenant_1", limit=101)
+        self.assertEqual(self.database.client.queries, [])
 
     def test_service_health_and_ingest_routes(self):
         service = Mock()

@@ -4,9 +4,9 @@ Alex is a multi-agent financial planning learning project. **Google Cloud is the
 
 ## Start here
 
-Follow the [Google Cloud deployment guides](guides_GCP/README.md) in order. They cover project setup, Vertex AI embeddings, ingestion and vector search, the research agent, Cloud SQL, the agent orchestra, the web app/API, and enterprise monitoring.
+Follow the [Google Cloud deployment guides](guides_GCP/README.md) in order. They cover project setup, embedding providers, Cloud SQL with `pgvector`, ingestion and semantic search, the research agent, the agent orchestra, the web app/API, and enterprise monitoring.
 
-The canonical GCP infrastructure is under `terraform_gcp/`. Some early guide resources are configured with `gcloud` because model and vector-index settings depend on the selected region and model; use the exact GCP guide instructions. The old `terraform/` configurations are retired and must not be applied.
+The canonical GCP infrastructure is under `terraform_gcp/`. Some guide resources are configured with `gcloud`; use the exact GCP guide instructions. The old `terraform/` configurations are retired and must not be applied.
 
 ## Project directories
 
@@ -17,4 +17,4 @@ The canonical GCP infrastructure is under `terraform_gcp/`. Some early guide res
 - `guides/` and `terraform/` - retired AWS reference material
 - `scripts/` - local development and GCP deployment helpers
 
-Set billing alerts and review Google Cloud costs regularly. Cloud SQL, Vertex AI Vector Search, Cloud Run, network egress, and model usage can incur charges. Destroy development resources when they are not in use, while protecting any data you need to retain.
+Set billing alerts and review Google Cloud costs regularly. Cloud SQL, Cloud Run, network egress, and model usage can incur charges. `pgvector` runs inside Cloud SQL and does not create a separately billed vector-search endpoint. Destroy development resources when they are not in use, while protecting any data you need to retain.

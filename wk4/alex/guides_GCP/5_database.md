@@ -11,7 +11,7 @@ This guide maps Aurora Serverless v2 and its Data API to Cloud SQL for PostgreSQ
 
 ## Prerequisites
 
-- Completed Guides 1-4
+- Completed Guides 1 and 2
 - Cloud SQL Admin API and Secret Manager API enabled
 - A GCP runtime service account
 - Read the existing schema at `backend/database/migrations/001_schema.sql`
@@ -30,9 +30,10 @@ Create the runtime identities and enable the required APIs:
 gcloud services enable sqladmin.googleapis.com secretmanager.googleapis.com
 gcloud iam service-accounts create alex-api --project YOUR_PROJECT_ID
 gcloud iam service-accounts create alex-agents --project YOUR_PROJECT_ID
+gcloud iam service-accounts create alex-ingestion --project YOUR_PROJECT_ID
 ```
 
-The separate GCP Terraform stack in `terraform_gcp/5_database` provisions PostgreSQL, the `alex` database, an application user, a generated password in Secret Manager, and scoped IAM grants for the listed runtime identities. Review the defaults and regional pricing before applying. It defaults to a development-tier instance and deletion protection.
+The separate GCP Terraform stack in `terraform_gcp/5_database` provisions PostgreSQL, the `alex` database, an application user, a generated password in Secret Manager, and scoped IAM grants for the listed runtime identities. Include all service accounts that need database access (including `alex-ingestion`) in `runtime_service_accounts`. Review the defaults and regional pricing before applying. It defaults to a development-tier instance and deletion protection.
 
 ```bash
 cd terraform_gcp/5_database
@@ -82,9 +83,16 @@ Use `CLOUD_SQL_IP_TYPE=PRIVATE` only when the runtime has a VPC path to the inst
 
 The GCP client preserves the current model/client response contract so application queries can continue using the shared models. It translates named parameters (including PostgreSQL casts such as `:id::uuid`) to driver parameters. Keep SQL parameterized and preserve Clerk user IDs as tenant identifiers. Connections are opened per operation; keep Cloud Run instance counts/concurrency aligned with Cloud SQL connection limits.
 
-## Step 4: Apply migrations and seed data
+## Step 4: Install extensions, then apply migrations and seed data
 
-Keep the schema and seed data where provider-independent. Review migrations for PostgreSQL-version differences, then run migrations using a controlled migration identity and verify they complete before enabling application traffic. The shared database adapter allows the existing migration and seed scripts to run with `DATABASE_BACKEND=cloud_sql`.
+Cloud SQL extensions must be installed by a user with the `cloudsqlsuperuser` role. In Cloud SQL Studio, connect to the `alex` database as the `postgres` user and run:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+The application user does not need extension-creation privileges. Then run migrations with the configured database application user; migration `002_pgvector.sql` creates the research-document table and grants table access to `alex_app`. If you selected a different `database_user` in Terraform, change the grant target in that migration before running it. Keep the schema and seed data where provider-independent. Review migrations for PostgreSQL-version differences and verify they complete before enabling application traffic.
 
 ```bash
 cd backend/database
@@ -92,8 +100,11 @@ uv sync --extra gcp
 uv run test_cloud_sql.py
 uv run run_migrations.py
 uv run seed_data.py
+uv run seed_pgvector.py
 uv run verify_database.py
 ```
+
+Before running `seed_pgvector.py`, set `EMBEDDING_OUTPUT_DIMENSIONALITY` to the verified dimension from Guide 2. The script inserts three deterministic, synthetic vectors under the isolated `alex-pgvector-seed` tenant to check vector storage and cosine-distance queries; these are not semantic embeddings and are not intended for application search. `verify_database.py` checks the extension, vector column, stored dimensions, smoke-test rows, and cosine-distance operator.
 
 The migration, seed, verification, and reset scripts use `DATABASE_BACKEND` like the application. Use `test_cloud_sql.py` for Cloud SQL connectivity. The connectivity test requires the deployed instance, ADC, and the environment below. Do not run destructive reset scripts against a database containing data you need.
 
@@ -114,4 +125,4 @@ Monitor Cloud SQL instance, storage, backup, and network charges. Back up any da
 
 ## Next
 
-Continue to [6_agents.md](6_agents.md) to deploy the five-agent workflow using Cloud Run and Pub/Sub.
+Continue to [3_ingest.md](3_ingest.md) to deploy ingestion and semantic search on Cloud Run.

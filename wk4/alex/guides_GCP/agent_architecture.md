@@ -17,14 +17,14 @@ graph TB
     Reporter --> DB
     Charter --> DB
     Retirement --> DB
-    Reporter --> Vectors[(Vertex AI Vector Search)]
+    Reporter --> SQL
     Planner --> DB
     DB --> Result[Complete Analysis]
 
     Scheduler[Cloud Scheduler] --> Researcher[Researcher]
     Researcher --> LLM[Shared LLM provider<br/>HF default; Nscale optional]
     Researcher --> Ingest[Ingestion service]
-    Ingest --> Vectors
+    Ingest --> SQL
 ```
 
 ## Agent responsibilities
@@ -45,6 +45,8 @@ The API stores a job record and publishes a job ID to Pub/Sub. An authenticated 
 Do not assume Pub/Sub ordering or exactly-once business processing. Persist each agent's result independently and mark a job complete only after required work has succeeded. Report partial failure explicitly rather than returning a success-shaped empty response.
 
 The scheduled Researcher is independent of user-triggered Planner work. Cloud Scheduler invokes it using OIDC and a dedicated runtime identity. The Researcher must treat browser results as untrusted data, limit browsing scope, and avoid turning retrieved instructions into tool commands.
+
+Research documents and embeddings are stored and searched in Cloud SQL PostgreSQL using `pgvector`; the embedding API is selected independently as Nscale or Vertex AI.
 
 ## Model and tool design
 
