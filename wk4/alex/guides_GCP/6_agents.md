@@ -91,7 +91,7 @@ Edit `terraform.tfvars` with:
 - Your project and region.
 - The existing `alex-agents` and `alex-api` service account emails.
 - The Cloud SQL connection name and database secret ID from `terraform_gcp/5_database` outputs.
-- The private ingestion Cloud Run service name, region, URL, and audience from Guide 3. The audience is usually the service URL.
+- The IAM-protected ingestion Cloud Run service name, region, URL, and audience from Guide 3. The audience is usually the service URL.
 - The five Artifact Registry image URLs. Keep the image URLs under the repository created by this stack.
 - Optionally, `llm_provider`, `llm_model`, and the selected provider's Secret Manager secret ID. Defaults come from the shared `llm_config.json`.
 - Optionally, the Secret Manager ID holding the Massive API key.
@@ -172,7 +172,7 @@ Once the GCP API is deployed, submit a development analysis and verify:
 2. Planner claims it once, calls the required agents, and persists the result in Cloud SQL.
 3. The job reaches completed; repeated deliveries do not rerun completed or running work.
 4. A deliberately failing development message retries and appears in the dead-letter subscription after the configured number of attempts.
-5. Reporter searches the private ingestion service using the tenant from the persisted job, not a caller-supplied tenant.
+5. Reporter searches the IAM-protected ingestion service using the tenant from the persisted job, not a caller-supplied tenant.
 
 ## Troubleshooting
 
@@ -180,7 +180,7 @@ Once the GCP API is deployed, submit a development analysis and verify:
 - **LLM provider authentication, model, or rate-limit errors:** verify `llm_provider`, its matching Secret Manager secret and access binding, model/provider availability, and current quota.
 - **Database or secret access denied:** verify that the same `alex-agents` service account is listed in Guide 5's `runtime_service_accounts`; confirm the secret ID and Cloud SQL connection name.
 - **Planner cannot call another agent:** verify the service URL variables and `roles/run.invoker` binding for `alex-agents`.
-- **Reporter gets 403 from ingestion:** verify `ALEX_INGESTION_URL`, audience, and the ingestion service's invoker binding for `alex-agents`.
+- **Reporter gets 403 from ingestion:** verify `ALEX_INGESTION_URL`, audience, and the ingestion service's invoker binding for `alex-agents`. The Cloud Run URL is not network-private solely because unauthenticated access is disabled.
 - **Pub/Sub delivery fails:** verify Planner's invoker binding for `alex-pubsub-push`, the subscription's OIDC audience, and the Pub/Sub service agent bindings.
 - **Database connection exhaustion:** reduce Cloud Run maximum instances/concurrency and account for the Cloud SQL connector connection per instance.
 - **Messages repeat:** inspect job status and logs. Running jobs are retried but not run concurrently; pending, failed, and expired-running jobs can be claimed.

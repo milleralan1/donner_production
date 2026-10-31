@@ -90,12 +90,45 @@ This calls Nscale and may consume Nscale credits. For a live database check, the
 
 ## Step 4: Build and deploy the API
 
-Include `alex-ingestion` in the Cloud SQL stack's `runtime_service_accounts` so it receives `roles/cloudsql.client` and access to the database-password secret. Create the service account if needed:
+Include `alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com` in the Cloud SQL stack's `runtime_service_accounts` so Terraform grants it `roles/cloudsql.client` and access to the database-password secret. If you already applied that stack without this account, add it to `terraform.tfvars`, then run and review `terraform plan` before applying. Alternatively, grant the permissions manually as shown below. Create the service account if needed:
 
 ```bash
 gcloud iam service-accounts create alex-ingestion \
   --project YOUR_PROJECT_ID \
   --display-name "Alex ingestion runtime"
+```
+
+For manual IAM setup (or to repair a deployment after changing its runtime service account), grant Cloud SQL Client and secret access to the ingestion identity. These grants are resource-scoped where possible; run the secret command for the provider configured in Step 2. Skip grants already managed by the Guide 5 Terraform stack.
+
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/cloudsql.client"
+
+gcloud secrets add-iam-policy-binding alex-cloud-sql-password \
+  --project YOUR_PROJECT_ID \
+  --member="serviceAccount:alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+
+# For Nscale embeddings:
+gcloud secrets add-iam-policy-binding alex-nscale-token \
+  --project YOUR_PROJECT_ID \
+  --member="serviceAccount:alex-ingestion@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+For Vertex AI embeddings, the ingestion service does not need the Nscale secret; grant any required Vertex AI model permissions to the runtime identity as described in Guide 2.
+
+Create the Artifact Registry repository before pushing the image. This is separate from the `alex-agents` repository created by the Guide 6 Terraform stack. Run the create command only once; if the repository already exists in this project and region, skip it.
+
+```bash
+gcloud services enable artifactregistry.googleapis.com --project YOUR_PROJECT_ID
+gcloud artifacts repositories create alex-ingestion \
+  --repository-format=docker \
+  --location=YOUR_REGION \
+  --description="Alex ingestion API images" \
+  --project YOUR_PROJECT_ID
+gcloud auth configure-docker YOUR_REGION-docker.pkg.dev
 ```
 
 Build from the `backend` directory because the image installs the shared `alex-database` package:
@@ -121,7 +154,7 @@ gcloud run deploy alex-ingestion \
   --set-secrets NSCALE_API_KEY=alex-nscale-token:latest,DB_PASSWORD=alex-cloud-sql-password:latest
 ```
 
-Keep the service private. Grant `roles/run.invoker` only to the API and Researcher identities that need it. Cloud Run IAM authenticates the calling workload; the upstream API must still authenticate the user and derive the tenant ID from the verified Clerk identity.
+The Cloud Run service URL is a Google-hosted HTTPS endpoint and is normally reachable over the internet. `--no-allow-unauthenticated` prevents unauthenticated invocation; it does not make the URL network-private or restrict access to callers in your GCP project. Grant `roles/run.invoker` only to the API and Researcher identities that need it, and have callers send a Google-signed ID token. If network-level restriction is required, configure Cloud Run ingress and the necessary VPC or load-balancer path separately; IAM authentication and network ingress are distinct controls. The upstream API must still authenticate the user and derive the tenant ID from the verified Clerk identity.
 
 ## Step 5: Verify ingestion and tenant-scoped search
 

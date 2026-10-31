@@ -8,7 +8,7 @@ Deploy the Researcher as a containerized Cloud Run service. It performs market r
 - Docker running
 - A Hugging Face account and a fine-grained token with Inference Providers permission
 - The Hugging Face token stored in Secret Manager
-- The private Cloud Run ingestion service from Guide 3 deployed and accepting authorized calls
+- The IAM-protected Cloud Run ingestion service from Guide 3 deployed and accepting authorized calls
 
 ## Step 1: Configure the model and runtime identity
 
@@ -49,7 +49,7 @@ printf '%s' "$NSCALE_API_KEY" | gcloud secrets versions add alex-nscale-token \
 unset NSCALE_API_KEY
 ```
 
-Grant the Researcher runtime identity access to the selected provider secret and `roles/run.invoker` on the ingestion service only. ADC is still required for authenticated calls to the private ingestion service; the ingestor uses the embedding provider selected in Guide 2 and stores/searches embeddings in Cloud SQL with `pgvector`.
+Grant the Researcher runtime identity access to the selected provider secret and `roles/run.invoker` on the ingestion service only. Run the secret binding for the provider configured for the Researcher (Hugging Face or Nscale), not both unless both are used. ADC is required to mint an ID token for authenticated calls to the ingestion service; this IAM protection does not make its HTTPS URL network-private. The ingestor uses the embedding provider selected in Guide 2 and stores/searches embeddings in Cloud SQL with `pgvector`.
 
 ```bash
 gcloud iam service-accounts create alex-researcher \
@@ -61,13 +61,19 @@ gcloud secrets add-iam-policy-binding alex-huggingface-token \
   --member="serviceAccount:alex-researcher@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 
+# If using Nscale instead of Hugging Face, grant access to its secret instead:
+gcloud secrets add-iam-policy-binding alex-nscale-token \
+  --project YOUR_PROJECT_ID \
+  --member="serviceAccount:alex-researcher@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+
 gcloud run services add-iam-policy-binding YOUR_INGESTION_SERVICE \
   --region YOUR_REGION \
   --member="serviceAccount:alex-researcher@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/run.invoker"
 ```
 
-The ingestion URL is also used as the ID token audience by default. If the ingestion service has a custom audience, set `ALEX_INGESTION_AUDIENCE` to that configured audience. For local calls to the private ingestion service, use ADC capable of minting an ID token for a service account granted `roles/run.invoker`; never make the service public just to simplify testing.
+The ingestion URL is also used as the ID token audience by default. If the ingestion service has a custom audience, set `ALEX_INGESTION_AUDIENCE` to that configured audience. For local calls to the IAM-protected ingestion service, use ADC capable of minting an ID token for a service account granted `roles/run.invoker`; do not grant unauthenticated access just to simplify testing.
 
 The GCP service stores scheduled/general research in a fixed `RESEARCH_TENANT_ID` namespace, defaulting to `public_research`, rather than accepting a tenant from the model or request body.
 
@@ -166,7 +172,7 @@ Monitor Cloud Scheduler job status and Cloud Run request/error logs. Disable or 
 
 - **Container fails to start:** inspect Cloud Run startup logs, container port, dependencies, and browser libraries.
 - **Provider authentication, model, or rate-limit errors:** verify `ALEX_LLM_PROVIDER`, the matching secret environment variable and Secret Manager access/version, and that the selected model supports the needed features.
-- **Ingestion unauthorized:** check the service-to-service identity and target invoker permissions; do not make the ingestion service public as a shortcut.
+- **Ingestion unauthorized:** check the service-to-service identity and target invoker permissions; do not grant unauthenticated access as a shortcut.
 - **Timeouts:** inspect browser duration and service timeout; bound tool work rather than raising limits without evidence.
 
 ## Cleanup

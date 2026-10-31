@@ -13,7 +13,7 @@ Cloud SQL with `pgvector` has capacity and cost behavior distinct from Aurora Se
 - Use separate service accounts for the API, Planner, each agent, scheduler, and deployment pipeline where practical.
 - Grant narrow roles at the resource level. Avoid service-account keys and project-wide Owner/Editor grants.
 - Store credentials in Secret Manager and grant accessor permission only to the consuming runtime identity.
-- Keep Cloud SQL and internal Cloud Run services private where feasible; use supported connector/networking mechanisms.
+- Restrict network ingress for Cloud SQL and Cloud Run services where feasible using supported connector, VPC, and load-balancer configurations. Cloud Run IAM invoker authentication is separate from network ingress: disabling unauthenticated access does not make a service URL network-private.
 - Validate Clerk JWT signature, issuer, audience, expiry, and user identity on the server.
 - Configure exact CORS origins, HTTPS, secure browser headers/CSP, request size limits, and rate controls.
 - Enable Cloud Audit Logs and review security findings. Consider Security Command Center, Cloud Armor, VPC Service Controls, and organization policies according to threat model, requirements, availability, and cost.
