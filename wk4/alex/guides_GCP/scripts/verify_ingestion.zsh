@@ -1,8 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 
-PROJECT_ID="cyber-analyzer-512414"
-REGION="asia-south1"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-cyber-analyzer-512414}"
+REGION="${GOOGLE_CLOUD_REGION:-asia-south1}"
 SERVICE="alex-ingestion"
 TENANT="alex-guide3-test-$RANDOM"
 OTHER_TENANT="${TENANT}-other"

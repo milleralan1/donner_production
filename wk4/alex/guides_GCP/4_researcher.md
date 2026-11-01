@@ -1,44 +1,29 @@
 # Building Alex: Part 4 - Researcher Agent on Cloud Run
 
-Deploy the Researcher as a containerized Cloud Run service. It performs market research using the OpenAI Agents SDK and Hugging Face Inference Providers' OpenAI-compatible API, then sends its findings through the GCP ingestion path from [Guide 3](3_ingest.md). Vertex AI remains in use for embeddings and vector search, not text generation.
+Deploy the Researcher as a containerized Cloud Run service. It performs market research using the OpenAI Agents SDK and Nscale's OpenAI-compatible API with `openai/gpt-oss-120b`, then sends its findings through the GCP ingestion path from [Guide 3](3_ingest.md). Embeddings use the provider configured in Guide 2.
 
 ## Prerequisites
 
-- Completed Guides 1-3
+- Completed Guides 1-3 and 5
 - Docker running
-- A Hugging Face account and a fine-grained token with Inference Providers permission
-- The Hugging Face token stored in Secret Manager
+- An Nscale API token stored in Secret Manager
 - The IAM-protected Cloud Run ingestion service from Guide 3 deployed and accepting authorized calls
 
 ## Step 1: Configure the model and runtime identity
 
-The Researcher uses the shared LLM factory at `backend/gcp_agents/gcp_agents/huggingface_model.py`, also used by the five agent services. Provider endpoints, API-key environment names, and default model IDs live in `llm_config.json`; Terraform reads the same file for the five-agent stack. Hugging Face is the default. Choose a provider/model combination that supports the agent's tool-calling workflow and verify current availability, permissions, quotas, and pricing.
+The Researcher uses the shared LLM factory at `backend/gcp_agents/gcp_agents/huggingface_model.py`, also used by the five agent services. Provider endpoints, API-key environment names, and default model IDs live in `llm_config.json`; Terraform reads the same file for the five-agent stack. This deployment uses Nscale and `openai/gpt-oss-120b`. Verify that the model currently supports the Agents SDK tool-calling workflow, and check Nscale access, quotas, and pricing.
 
 Configure the GCP-specific service with:
 
 ```text
-ALEX_LLM_PROVIDER=huggingface
+ALEX_LLM_PROVIDER=nscale
 ALEX_LLM_MODEL=openai/gpt-oss-120b
-HF_TOKEN=provided-from-Secret-Manager-at-runtime
+NSCALE_API_KEY=provided-from-Secret-Manager-at-runtime
 ALEX_INGESTION_URL=https://YOUR_INGESTION_SERVICE.run.app
 RESEARCH_TENANT_ID=public_research
 ```
 
-To use Nscale directly instead, set `ALEX_LLM_PROVIDER=nscale`, set `ALEX_LLM_MODEL` to a model ID in the Nscale catalog, and inject the Nscale service token as `NSCALE_API_KEY` from Secret Manager. The model ID is provider-specific; do not assume Hugging Face model IDs are valid on Nscale.
-
-If the secret does not already exist, create it and add a version without putting the key in shell history:
-
-```bash
-# Skip the create command if this secret already exists.
-gcloud secrets create alex-huggingface-token --replication-policy=automatic \
-  --project YOUR_PROJECT_ID
-read -s HF_TOKEN
-printf '%s' "$HF_TOKEN" | gcloud secrets versions add alex-huggingface-token \
-  --data-file=- --project YOUR_PROJECT_ID
-unset HF_TOKEN
-```
-
-For Nscale, create and populate its separate secret without placing the token in shell history:
+If `alex-nscale-token` does not already exist, create it and add a version without placing the token in shell history:
 
 ```bash
 gcloud secrets create alex-nscale-token --replication-policy=automatic \
@@ -49,19 +34,13 @@ printf '%s' "$NSCALE_API_KEY" | gcloud secrets versions add alex-nscale-token \
 unset NSCALE_API_KEY
 ```
 
-Grant the Researcher runtime identity access to the selected provider secret and `roles/run.invoker` on the ingestion service only. Run the secret binding for the provider configured for the Researcher (Hugging Face or Nscale), not both unless both are used. ADC is required to mint an ID token for authenticated calls to the ingestion service; this IAM protection does not make its HTTPS URL network-private. The ingestor uses the embedding provider selected in Guide 2 and stores/searches embeddings in Cloud SQL with `pgvector`.
+Grant the Researcher runtime identity access to the Nscale secret and `roles/run.invoker` on the ingestion service only. ADC is required to mint an ID token for authenticated calls to the ingestion service; this IAM protection does not make its HTTPS URL network-private. The ingestor uses the embedding provider selected in Guide 2 and stores/searches embeddings in Cloud SQL with `pgvector`.
 
 ```bash
 gcloud iam service-accounts create alex-researcher \
   --project YOUR_PROJECT_ID \
   --display-name "Alex GCP Researcher runtime"
 
-gcloud secrets add-iam-policy-binding alex-huggingface-token \
-  --project YOUR_PROJECT_ID \
-  --member="serviceAccount:alex-researcher@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
-
-# If using Nscale instead of Hugging Face, grant access to its secret instead:
 gcloud secrets add-iam-policy-binding alex-nscale-token \
   --project YOUR_PROJECT_ID \
   --member="serviceAccount:alex-researcher@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
@@ -122,11 +101,9 @@ gcloud run deploy alex-researcher \
   --memory 2Gi \
   --concurrency 1 \
   --timeout 900 \
-  --set-env-vars ALEX_LLM_PROVIDER=huggingface,ALEX_LLM_MODEL=openai/gpt-oss-120b,ALEX_INGESTION_URL=https://YOUR_INGESTION_SERVICE.run.app,RESEARCH_TENANT_ID=public_research \
-  --set-secrets HF_TOKEN=alex-huggingface-token:latest
+  --set-env-vars ALEX_LLM_PROVIDER=nscale,ALEX_LLM_MODEL=openai/gpt-oss-120b,ALEX_INGESTION_URL=https://YOUR_INGESTION_SERVICE.run.app,RESEARCH_TENANT_ID=public_research \
+  --set-secrets NSCALE_API_KEY=alex-nscale-token:latest
 ```
-
-For Nscale, replace the provider/model environment values and the secret binding, for example `--set-env-vars ALEX_LLM_PROVIDER=nscale,ALEX_LLM_MODEL=YOUR_NSCALE_MODEL,...` and `--set-secrets NSCALE_API_KEY=alex-nscale-token:latest`.
 
 Use a pinned image digest for repeatable deployments. Start with zero minimum instances and bounded concurrency; browser processes can use material memory/CPU.
 
@@ -152,15 +129,24 @@ The service liveness endpoint is `GET /healthz`; it does not make paid model or 
 
 ## Step 3: Validate the end-to-end flow
 
-Test the health endpoint, then request research on a bounded topic. Confirm the service:
+From the repository root, run the verification script after granting your active Google user `roles/run.invoker` on both `alex-researcher` and `alex-ingestion`:
 
-1. Invokes the configured Hugging Face model within the account's current quota.
+```bash
+chmod +x guides_GCP/scripts/verify_researcher.zsh
+./guides_GCP/scripts/verify_researcher.zsh
+```
+
+The script starts authenticated local proxies for both services, checks API reachability, submits a bounded research request, and searches for its result in the `public_research` tenant. The research request calls Nscale and uses browser tools, so it may incur provider and Cloud Run charges and writes a document to the ingestion database. Review the output and Cloud Run logs; confirm the service:
+
+1. Invokes the configured Nscale `openai/gpt-oss-120b` model within the account's current quota.
 2. Uses browser tools only for allowed destinations and handles untrusted web content as data.
 3. Sends the research document to the GCP ingestion API.
 4. Returns a clear response and does not log secrets or sensitive user data.
 5. Produces searchable results from the deployed vector service.
 
 Use Cloud Run logs in Cloud Logging to diagnose startup, browser, model permission, quota, and downstream API issues.
+
+Set `ALEX_RESEARCH_TOPIC` to change the research prompt, `RESEARCH_TENANT_ID` to change the search tenant, `ALEX_RESEARCH_TIMEOUT_SECONDS` to change the request timeout, or `ALEX_RESEARCHER_PROXY_PORT` / `ALEX_INGESTION_PROXY_PORT` if the default local ports are in use.
 
 ## Step 4: Optional scheduled research
 
@@ -171,14 +157,14 @@ Monitor Cloud Scheduler job status and Cloud Run request/error logs. Disable or 
 ## Troubleshooting
 
 - **Container fails to start:** inspect Cloud Run startup logs, container port, dependencies, and browser libraries.
-- **Provider authentication, model, or rate-limit errors:** verify `ALEX_LLM_PROVIDER`, the matching secret environment variable and Secret Manager access/version, and that the selected model supports the needed features.
+- **Provider authentication, model, or rate-limit errors:** verify `ALEX_LLM_PROVIDER=nscale`, `ALEX_LLM_MODEL=openai/gpt-oss-120b`, the `NSCALE_API_KEY` secret binding and Secret Manager access/version, and that the model supports the needed features.
 - **Ingestion unauthorized:** check the service-to-service identity and target invoker permissions; do not grant unauthenticated access as a shortcut.
 - **Timeouts:** inspect browser duration and service timeout; bound tool work rather than raising limits without evidence.
 
 ## Cleanup
 
-Delete the Cloud Scheduler job and Cloud Run service when not in use. Remove unused Artifact Registry images if appropriate. Inference is hosted externally by the selected provider, so there is no GCP model endpoint to delete; monitor provider usage and GCP Cloud Run/browser costs.
+Delete the Cloud Scheduler job and Cloud Run service when not in use. Remove unused Artifact Registry images if appropriate. Nscale inference is hosted externally, so there is no GCP model endpoint to delete; monitor Nscale usage and GCP Cloud Run/browser costs.
 
 ## Next
 
-Continue to [5_database.md](5_database.md) to provision Cloud SQL for PostgreSQL.
+Continue to [6_agents.md](6_agents.md) to deploy the agent orchestra.
