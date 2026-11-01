@@ -158,7 +158,25 @@ The Cloud Run service URL is a Google-hosted HTTPS endpoint and is normally reac
 
 ## Step 5: Verify ingestion and tenant-scoped search
 
-1. Invoke `GET /healthz`.
+For the local verifier, grant your existing Google account `roles/run.invoker` on the ingestion service:
+
+```bash
+gcloud run services add-iam-policy-binding alex-ingestion \
+  --region YOUR_REGION \
+  --project YOUR_PROJECT_ID \
+  --member="user:YOUR_USER_EMAIL" \
+  --role="roles/run.invoker"
+```
+
+Run the verifier while authenticated as that user with `gcloud auth login`. The script starts `gcloud run services proxy`, which forwards requests using the active account's credentials. Its initial reachability check uses the OpenAPI endpoint because `/healthz` conflicts with the local proxy's own health route:
+
+```bash
+./guides_GCP/scripts/verify_ingestion.zsh
+```
+
+Optionally set `ALEX_INGESTION_PROXY_PORT` if port `8765` is already in use.
+
+1. Check API health with `GET /healthz` from a direct authenticated client. The local proxy verifier checks `/openapi.json` instead because the proxy intercepts `/healthz`.
 2. Send a short document to `POST /ingest`; verify its row and vector exist in `research_documents`.
 3. Send a related query to `POST /search` with the same tenant and confirm relevant results.
 4. Search as another tenant and confirm the first tenant's documents are not returned.
