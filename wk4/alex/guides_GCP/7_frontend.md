@@ -107,7 +107,7 @@ terraform output frontend_url
 
 Copy the exact `frontend_url` output into `frontend_origin` in `terraform.tfvars` (scheme and host only, no trailing slash) and apply again. This sets the API CORS allowlist to the frontend's exact HTTPS origin. The frontend is a Cloud Run Next.js standalone service; this avoids assuming that every Next.js route can be served from a static Cloud Storage bucket.
 
-## Step 6: Verify production behavior
+## Step 6: Verify deployed behavior
 
 Check:
 
@@ -118,6 +118,55 @@ Check:
 5. Account CRUD and analysis-job status work.
 6. Starting analysis publishes only the new job ID to Pub/Sub; Planner processes it and persists results.
 7. Cloud Logging contains useful request IDs but no credentials or unnecessary financial payloads.
+
+### Manual end-to-end queue test (development project only)
+
+Terraform deploys the services and queue; it does **not** submit an analysis or inject test failures. Run this smoke test yourself after Guides 5-7 are deployed. Analysis calls external model and market-data providers and may incur charges. Use a development Clerk user with a portfolio, and do not run the failure-injection test on a production topic.
+
+1. Sign in to the deployed frontend and start one analysis from the Advisor Team page. The API creates a `pending` job, publishes its ID to Pub/Sub, and returns the `job_id`. The job may move to `running` too quickly to observe `pending`.
+2. Check the job in Cloud SQL Studio, connected to the `alex` database:
+
+   ```sql
+   SELECT id, status, clerk_user_id, created_at, updated_at, error_message,
+          report_payload IS NOT NULL AS report_saved
+   FROM jobs
+   WHERE id = 'YOUR_JOB_ID';
+   ```
+
+   The job should reach `completed`. In Cloud Run logs, check that `alex-planner` handled the job and `alex-reporter` completed. Reporter derives its search `tenant_id` from that job's persisted `clerk_user_id` and calls the IAM-protected ingestion service; it does not accept a caller-supplied tenant.
+3. Confirm delivery and agent activity in logs. The jobs subscription is push-based, so inspect it and the Cloud Run logs rather than pulling from the primary subscription:
+
+   ```bash
+   gcloud run services logs read alex-planner \
+     --project YOUR_PROJECT_ID --region YOUR_REGION --limit 100
+   gcloud run services logs read alex-reporter \
+     --project YOUR_PROJECT_ID --region YOUR_REGION --limit 100
+   gcloud run services logs read alex-ingestion \
+     --project YOUR_PROJECT_ID --region YOUR_REGION --limit 100
+   ```
+
+4. To check completed-job idempotency, republish the same job ID after it is completed:
+
+   ```bash
+   gcloud pubsub topics publish alex-analysis-jobs \
+     --project YOUR_PROJECT_ID \
+     --message='{"job_id":"YOUR_JOB_ID"}'
+   ```
+
+   Planner should log that the job is already completed and acknowledge the message without rerunning the agents. For the running-job behavior, only if the job is still `running`, publish the same message once; Planner should defer the duplicate for retry rather than claim the job again. Confirm the job eventually completes and is not processed concurrently.
+
+5. Optional dead-letter test, **development topic only**: publish one malformed message. The Planner `/pubsub` endpoint rejects it, causing Pub/Sub to retry it and eventually route it to the configured dead-letter topic. `dead_letter_max_delivery_attempts` defaults to 20 in `terraform_gcp/6_agents`; routing time is not immediate.
+
+   ```bash
+   gcloud pubsub topics publish alex-analysis-jobs \
+     --project YOUR_PROJECT_ID \
+     --message='not-json'
+
+   gcloud pubsub subscriptions pull alex-analysis-jobs-dlq-monitor \
+     --project YOUR_PROJECT_ID --limit 5
+   ```
+
+   Confirm the malformed payload appears in the DLQ subscription. Pulling without `--auto-ack` leaves it available for inspection; acknowledge or remove test messages when finished. Do not send malformed messages to a production topic.
 
 ## Troubleshooting
 

@@ -168,9 +168,9 @@ terraform output jobs_subscription
 terraform output dead_letter_subscription
 ```
 
-Use Cloud Run logs and Pub/Sub metrics to verify service startup, message delivery, retries, and dead-letter routing. A full analysis trigger from the application is completed with the GCP API integration in Guide 7.
+Use Cloud Run logs and Pub/Sub metrics to verify service startup. Terraform does not trigger an analysis or test retries; after deploying the API in Guide 7, follow its manual development-only end-to-end queue test to verify message delivery, idempotency, agent calls, and optional dead-letter routing.
 
-Once the GCP API is deployed, submit a development analysis and verify:
+The Guide 7 test verifies:
 
 1. The job is created as pending and published to the jobs topic.
 2. Planner claims it once, calls the required agents, and persists the result in Cloud SQL.
@@ -183,6 +183,16 @@ Once the GCP API is deployed, submit a development analysis and verify:
 - **Cloud Run fails to start:** check the service role, image URL, startup probe, Cloud Run logs, and `ALEX_AGENT_ROLE`.
 - **LLM provider authentication, model, or rate-limit errors:** verify `llm_provider`, its matching Secret Manager secret and access binding, model/provider availability, and current quota.
 - **Database or secret access denied:** verify that the same `alex-agents` service account is listed in Guide 5's `runtime_service_accounts`; confirm the secret ID and Cloud SQL connection name.
+- **Terraform cannot create agent revisions because `alex-agents` cannot access `alex-cloud-sql-password`:** grant the service account access to this secret, then rerun `terraform apply` from `terraform_gcp/6_agents`. This repairs IAM without deleting the partially created Pub/Sub resources:
+
+  ```bash
+  gcloud secrets add-iam-policy-binding alex-cloud-sql-password \
+    --project YOUR_PROJECT_ID \
+    --member="serviceAccount:alex-agents@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor"
+  ```
+
+  For durable Terraform-managed access, also include `alex-agents@YOUR_PROJECT_ID.iam.gserviceaccount.com` in Guide 5's `runtime_service_accounts` and apply the Guide 5 database stack. Confirm the secret and both stacks use the same GCP project.
 - **Planner cannot call another agent:** verify the service URL variables and `roles/run.invoker` binding for `alex-agents`.
 - **Reporter gets 403 from ingestion:** verify `ALEX_INGESTION_URL`, audience, and the ingestion service's invoker binding for `alex-agents`. The Cloud Run URL is not network-private solely because unauthenticated access is disabled.
 - **Pub/Sub delivery fails:** verify Planner's invoker binding for `alex-pubsub-push`, the subscription's OIDC audience, and the Pub/Sub service agent bindings.
