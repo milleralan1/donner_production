@@ -118,13 +118,10 @@ variable "ingestion_service_name" {
 }
 
 variable "ingestion_service_region" {
-  description = "Region of the Cloud Run ingestion service."
+  description = "Optional region of the ingestion service; defaults to the agent stack region."
   type        = string
-}
-
-variable "ingestion_service_url" {
-  description = "HTTPS base URL of the private Cloud Run ingestion service."
-  type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "ingestion_service_audience" {

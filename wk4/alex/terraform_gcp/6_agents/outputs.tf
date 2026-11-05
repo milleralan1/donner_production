@@ -1,6 +1,9 @@
 output "agent_service_urls" {
   description = "Private IAM-protected Cloud Run URLs for each agent."
-  value       = { for role, service in google_cloud_run_v2_service.agent : role => service.uri }
+  value = merge(
+    { for role, service in google_cloud_run_v2_service.agent : role => service.uri },
+    { planner = google_cloud_run_v2_service.planner.uri },
+  )
 }
 
 output "artifact_registry_repository" {

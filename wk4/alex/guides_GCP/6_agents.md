@@ -17,6 +17,8 @@ graph TB
     Agents --> HF[Hugging Face Inference Providers]
 ```
 
+The Researcher is deployed separately in [Guide 4](4_researcher.md); it is not one of these five services and does not receive the Planner's Pub/Sub jobs. Guide 4 also describes an optional Cloud Scheduler job that invokes the Researcher on a schedule. Cloud Scheduler is a trigger, not an agent or a sixth service in this Terraform stack.
+
 Pub/Sub delivery is at-least-once. The Planner atomically claims pending or failed jobs in Cloud SQL; deliveries for a running job are retried without starting duplicate work, while a completed job is acknowledged. A failed job can be claimed again, and a job left running by a hard timeout can be reclaimed after its 65-minute lease expires. Repeated failures are routed to a dead-letter topic.
 
 ## Prerequisites
@@ -38,6 +40,8 @@ nscale_token_secret_id = "alex-nscale-token"
 ```
 
 The Terraform variables override the shared JSON defaults; you do not need to edit `llm_config.json` to select Nscale here. The JSON supplies the default provider/model when Terraform values are omitted. For the separately deployed Researcher, set `ALEX_LLM_PROVIDER=nscale` and `ALEX_LLM_MODEL=YOUR_NSCALE_MODEL_ID` in its Cloud Run environment instead.
+
+The Guide 3 ingestion service must already exist before applying this stack. Terraform reads its URL from Cloud Run using `ingestion_service_name` (default `alex-ingestion`) and its region (defaults to the `region` above), then configures the Reporter endpoint and the runtime invoker binding.
 
 Before applying the stack, create the Hugging Face token secret in Secret Manager (if not already present) and add a version without placing the token in shell history:
 
@@ -91,7 +95,7 @@ Edit `terraform.tfvars` with:
 - Your project and region.
 - The existing `alex-agents` and `alex-api` service account emails.
 - The Cloud SQL connection name and database secret ID from `terraform_gcp/5_database` outputs.
-- The IAM-protected ingestion Cloud Run service name, region, URL, and audience from Guide 3. The audience is usually the service URL.
+- The IAM-protected ingestion Cloud Run service from Guide 3. Terraform looks it up by service name in the stack's project and region; set `ingestion_service_region` only if it is in a different region. Terraform uses the discovered service URL automatically. Set `ingestion_service_audience` only if you configured a custom ID-token audience; by default the service URL is used.
 - The five Artifact Registry image URLs. Keep the image URLs under the repository created by this stack.
 - Optionally, `llm_provider`, `llm_model`, and the selected provider's Secret Manager secret ID. Defaults come from the shared `llm_config.json`.
 - Optionally, the Secret Manager ID holding the Massive API key.

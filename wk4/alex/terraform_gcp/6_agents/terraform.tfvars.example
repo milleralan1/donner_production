@@ -23,9 +23,10 @@ database_user               = "alex_app"
 database_password_secret_id = "alex-cloud-sql-password"
 
 ingestion_service_name     = "alex-ingestion"
-ingestion_service_region   = "YOUR_REGION"
-ingestion_service_url      = "https://YOUR_INGESTION_SERVICE_URL"
-ingestion_service_audience = "https://YOUR_INGESTION_SERVICE_URL"
+# Set only if ingestion is deployed outside the stack's region.
+# ingestion_service_region = "YOUR_INGESTION_REGION"
+# Set only if the service uses a custom ID-token audience.
+# ingestion_service_audience = "YOUR_CUSTOM_AUDIENCE"
 
 # Optional: omit when price lookups are not configured.
 # massive_api_key_secret_id = "alex-massive-api-key"

@@ -29,13 +29,20 @@ moved {
   to   = google_secret_manager_secret_iam_member.llm_api_key
 }
 
+moved {
+  from = google_cloud_run_v2_service.agent["planner"]
+  to   = google_cloud_run_v2_service.planner
+}
+
 locals {
-  agent_roles   = toset(["planner", "tagger", "reporter", "charter", "retirement"])
-  llm_defaults  = jsondecode(file("${path.module}/../../backend/gcp_agents/gcp_agents/llm_config.json"))
-  llm_provider  = coalesce(var.llm_provider, local.llm_defaults.default_provider)
-  llm_settings  = local.llm_defaults.providers[local.llm_provider]
-  llm_secret_id = local.llm_provider == "huggingface" ? var.huggingface_token_secret_id : var.nscale_token_secret_id
-  llm_model     = coalesce(var.llm_model, local.llm_defaults.models.agents[local.llm_provider])
+  agent_roles      = toset(["planner", "tagger", "reporter", "charter", "retirement"])
+  worker_roles     = setsubtract(local.agent_roles, toset(["planner"]))
+  llm_defaults     = jsondecode(file("${path.module}/../../backend/gcp_agents/gcp_agents/llm_config.json"))
+  llm_provider     = coalesce(var.llm_provider, local.llm_defaults.default_provider)
+  llm_settings     = local.llm_defaults.providers[local.llm_provider]
+  llm_secret_id    = local.llm_provider == "huggingface" ? var.huggingface_token_secret_id : var.nscale_token_secret_id
+  llm_model        = coalesce(var.llm_model, local.llm_defaults.models.agents[local.llm_provider])
+  ingestion_region = coalesce(var.ingestion_service_region, var.region)
   common_env = {
     ALEX_LLM_PROVIDER         = local.llm_provider
     ALEX_LLM_MODEL            = local.llm_model
@@ -47,7 +54,6 @@ locals {
     GOOGLE_CLOUD_PROJECT      = var.project_id
     GOOGLE_CLOUD_LOCATION     = var.region
     MOCK_LAMBDAS              = "false"
-    PORT                      = "8080"
   }
 }
 
@@ -78,6 +84,12 @@ data "google_service_account" "agents" {
 data "google_service_account" "api" {
   account_id = split("@", var.api_service_account_email)[0]
   project    = var.project_id
+}
+
+data "google_cloud_run_v2_service" "ingestion" {
+  project  = var.project_id
+  name     = var.ingestion_service_name
+  location = local.ingestion_region
 }
 
 resource "google_artifact_registry_repository" "agents" {
@@ -114,7 +126,7 @@ resource "google_service_account" "pubsub_push" {
 }
 
 resource "google_cloud_run_v2_service" "agent" {
-  for_each = local.agent_roles
+  for_each = local.worker_roles
 
   name                = "alex-${each.key}"
   location            = var.region
@@ -178,21 +190,8 @@ resource "google_cloud_run_v2_service" "agent" {
       }
 
       dynamic "env" {
-        for_each = each.key == "planner" ? {
-          TAGGER_SERVICE_URL     = google_cloud_run_v2_service.agent["tagger"].uri
-          REPORTER_SERVICE_URL   = google_cloud_run_v2_service.agent["reporter"].uri
-          CHARTER_SERVICE_URL    = google_cloud_run_v2_service.agent["charter"].uri
-          RETIREMENT_SERVICE_URL = google_cloud_run_v2_service.agent["retirement"].uri
-        } : {}
-        content {
-          name  = env.key
-          value = env.value
-        }
-      }
-
-      dynamic "env" {
         for_each = each.key == "reporter" ? {
-          ALEX_INGESTION_URL = var.ingestion_service_url
+          ALEX_INGESTION_URL = data.google_cloud_run_v2_service.ingestion.uri
         } : {}
         content {
           name  = env.key
@@ -242,20 +241,134 @@ resource "google_cloud_run_v2_service" "agent" {
   ]
 }
 
+resource "google_cloud_run_v2_service" "planner" {
+  name                = "alex-planner"
+  location            = var.region
+  deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account                  = data.google_service_account.agents.email
+    timeout                          = "3600s"
+    max_instance_request_concurrency = 1
+
+    scaling {
+      max_instance_count = var.max_instances
+    }
+
+    containers {
+      image = var.agent_image_urls["planner"]
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "2"
+          memory = "2Gi"
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.common_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      env {
+        name  = "ALEX_AGENT_ROLE"
+        value = "planner"
+      }
+
+      env {
+        name = "DB_PASSWORD"
+        value_source {
+          secret_key_ref {
+            secret  = var.database_password_secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = local.llm_settings.api_key_env
+        value_source {
+          secret_key_ref {
+            secret  = local.llm_secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name  = "TAGGER_SERVICE_URL"
+        value = google_cloud_run_v2_service.agent["tagger"].uri
+      }
+
+      env {
+        name  = "REPORTER_SERVICE_URL"
+        value = google_cloud_run_v2_service.agent["reporter"].uri
+      }
+
+      env {
+        name  = "CHARTER_SERVICE_URL"
+        value = google_cloud_run_v2_service.agent["charter"].uri
+      }
+
+      env {
+        name  = "RETIREMENT_SERVICE_URL"
+        value = google_cloud_run_v2_service.agent["retirement"].uri
+      }
+
+      dynamic "env" {
+        for_each = var.massive_api_key_secret_id != null ? [var.massive_api_key_secret_id] : []
+        content {
+          name = "MASSIVE_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      startup_probe {
+        initial_delay_seconds = 10
+        timeout_seconds       = 3
+        period_seconds        = 10
+        failure_threshold     = 12
+
+        http_get {
+          path = "/healthz"
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_service.required,
+    google_secret_manager_secret_iam_member.llm_api_key,
+  ]
+}
+
 resource "google_cloud_run_v2_service_iam_member" "agent_invoker" {
   for_each = local.agent_roles
 
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_service.agent[each.key].name
+  name     = each.key == "planner" ? google_cloud_run_v2_service.planner.name : google_cloud_run_v2_service.agent[each.key].name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${data.google_service_account.agents.email}"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "ingestion_invoker" {
   project  = var.project_id
-  location = var.ingestion_service_region
-  name     = var.ingestion_service_name
+  location = local.ingestion_region
+  name     = data.google_cloud_run_v2_service.ingestion.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${data.google_service_account.agents.email}"
 }
@@ -263,7 +376,7 @@ resource "google_cloud_run_v2_service_iam_member" "ingestion_invoker" {
 resource "google_cloud_run_v2_service_iam_member" "pubsub_planner_invoker" {
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_service.agent["planner"].name
+  name     = google_cloud_run_v2_service.planner.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.pubsub_push.email}"
 }
@@ -316,11 +429,11 @@ resource "google_pubsub_subscription" "jobs" {
   message_retention_duration = "604800s"
 
   push_config {
-    push_endpoint = "${google_cloud_run_v2_service.agent["planner"].uri}/pubsub"
+    push_endpoint = "${google_cloud_run_v2_service.planner.uri}/pubsub"
 
     oidc_token {
       service_account_email = google_service_account.pubsub_push.email
-      audience              = google_cloud_run_v2_service.agent["planner"].uri
+      audience              = google_cloud_run_v2_service.planner.uri
     }
   }
 
